@@ -1,0 +1,26 @@
+# YOLOv8 Requirements for Raspberry Pi 4 (aarch64)
+# Compatible versions tested on Python 3.13
+
+# PyTorch (MUST use 2.6.0 for RPi4 compatibility)
+torch==2.6.0
+torchvision==0.21.0
+
+# YOLOv8 and dependencies
+ultralytics==8.4.9
+opencv-python>=4.5.0
+pillow>=8.0.0
+pyyaml>=5.3.1
+requests>=2.23.0
+tqdm>=4.64.0
+psutil
+py-cpuinfo
+pandas>=1.1.4
+seaborn>=0.11.0
+
+# Note: Install with --break-system-packages flag on Debian/Raspbian:
+# pip3 install -r requirements_yolov8.txt --break-system-packages
+
+# Installation order matters:
+# 1. First install torch==2.6.0
+# 2. Then install torchvision==0.21.0  
+# 3. Finally install ultralytics (will NOT upgrade torch)

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ESP32-CAM Stream Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .stream-box {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            background: #000;
+            display: inline-block;
+        }
+        .stream-box img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .status {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre;
+            overflow-x: auto;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+        input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 200px;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>📹 ESP32-CAM Stream Viewer</h1>
+    
+    <div class="container">
+        <h2>Camera Configuration</h2>
+        <div class="info">
+            <strong>Instructions:</strong><br>
+            1. Find your ESP32-CAM IP from Serial Monitor (115200 baud)<br>
+            2. Enter the IP below and click "Connect"<br>
+            3. The live stream will appear below
+        </div>
+        
+        <div>
+            <label>ESP32-CAM IP Address:</label><br>
+            <input type="text" id="cameraIp" value="192.168.1.150" placeholder="e.g. 192.168.1.150">
+            <button onclick="connectCamera()">Connect</button>
+            <button onclick="checkStatus()">Check Status</button>
+            <button onclick="refreshStream()">Refresh Stream</button>
+        </div>
+        
+        <div id="message"></div>
+    </div>
+
+    <div class="container">
+        <h2>Live Stream</h2>
+        <div class="stream-box" id="streamContainer" style="display:none;">
+            <img id="streamImage" alt="Camera Stream">
+        </div>
+        <div id="streamError" style="display:none;" class="error">
+            Stream not available. Check camera IP and network connection.
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Camera Status</h2>
+        <div id="statusDisplay" class="status">Click "Check Status" to fetch camera information</div>
+    </div>
+
+    <div class="container">
+        <h2>Quick Links</h2>
+        <div>
+            <button onclick="openInNewTab('stream')">Open Stream in New Tab</button>
+            <button onclick="openInNewTab('status')">View Status JSON</button>
+        </div>
+    </div>
+
+    <script>
+        let currentIp = '';
+
+        function connectCamera() {
+            const ip = document.getElementById('cameraIp').value.trim();
+            if (!ip) {
+                showMessage('Please enter an IP address', 'error');
+                return;
+            }
+
+            currentIp = ip;
+            const streamUrl = `http://${ip}/stream`;
+            
+            // Hide previous errors
+            document.getElementById('streamError').style.display = 'none';
+            document.getElementById('streamContainer').style.display = 'none';
+            
+            // Create new image to test if stream loads
+            const testImg = new Image();
+            testImg.onload = function() {
+                document.getElementById('streamImage').src = streamUrl;
+                document.getElementById('streamContainer').style.display = 'block';
+                showMessage(`✓ Connected to camera at ${ip}`, 'success');
+            };
+            testImg.onerror = function() {
+                document.getElementById('streamError').style.display = 'block';
+                showMessage(`✗ Cannot connect to ${ip}. Check IP and network.`, 'error');
+            };
+            testImg.src = streamUrl;
+        }
+
+        function refreshStream() {
+            if (!currentIp) {
+                showMessage('Connect to a camera first', 'error');
+                return;
+            }
+            const streamUrl = `http://${currentIp}/stream?t=${Date.now()}`;
+            document.getElementById('streamImage').src = streamUrl;
+            showMessage('Stream refreshed', 'success');
+        }
+
+        async function checkStatus() {
+            const ip = document.getElementById('cameraIp').value.trim();
+            if (!ip) {
+                showMessage('Please enter an IP address', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://${ip}/status`);
+                const data = await response.json();
+                document.getElementById('statusDisplay').textContent = JSON.stringify(data, null, 2);
+                showMessage('✓ Status fetched successfully', 'success');
+            } catch (error) {
+                document.getElementById('statusDisplay').textContent = 
+                    `Error: ${error.message}\n\nMake sure:\n` +
+                    `1. ESP32-CAM is powered on\n` +
+                    `2. IP address is correct\n` +
+                    `3. Camera is on same network\n` +
+                    `4. Port 80 is accessible`;
+                showMessage(`✗ Failed to get status: ${error.message}`, 'error');
+            }
+        }
+
+        function openInNewTab(endpoint) {
+            const ip = document.getElementById('cameraIp').value.trim();
+            if (!ip) {
+                showMessage('Please enter an IP address first', 'error');
+                return;
+            }
+            window.open(`http://${ip}/${endpoint}`, '_blank');
+        }
+
+        function showMessage(text, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.className = type;
+            messageDiv.textContent = text;
+            messageDiv.style.display = 'block';
+            setTimeout(() => {
+                messageDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        // Auto-connect if IP is pre-filled
+        window.onload = function() {
+            const ip = document.getElementById('cameraIp').value;
+            if (ip && ip !== '192.168.1.150') {
+                setTimeout(connectCamera, 500);
+            }
+        };
+    </script>
+</body>
+</html>

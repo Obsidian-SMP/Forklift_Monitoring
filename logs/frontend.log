@@ -1,0 +1,27 @@
+
+> vite_react_shadcn_ts@0.0.0 dev
+> vite --host 0.0.0.0
+
+Port 8080 is in use, trying another one...
+
+  VITE v5.4.19  ready in 1010 ms
+
+  ➜  Local:   http://localhost:8081/
+  ➜  Network: http://10.136.57.165:8081/
+Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+05:07:39 [vite] hmr update /src/pages/WarehouseEnvironment.tsx, /src/index.css, /src/pages/WarehouseLayoutReal.tsx, /src/pages/PathTracking.tsx, /src/pages/RSSIMonitoring.tsx, /src/components/DHTSensorWidget.tsx
+05:07:58 [vite] hmr update /src/pages/WarehouseEnvironment.tsx, /src/index.css, /src/pages/WarehouseLayoutReal.tsx, /src/pages/PathTracking.tsx, /src/pages/RSSIMonitoring.tsx, /src/components/DHTSensorWidget.tsx
+05:07:58 [vite] page reload src/pages/ForkliftMonitoring.tsx
+05:07:59 [vite] page reload src/pages/ForkliftMonitoring.tsx
+05:15:17 [vite] page reload src/pages/ForkliftMonitoring.tsx
+05:15:17 [vite] page reload src/pages/ForkliftMonitoring.tsx
+05:25:27 [vite] page reload src/pages/ForkliftMonitoring.tsx
+05:25:28 [vite] page reload src/pages/ForkliftMonitoring.tsx
+05:25:49 [vite] page reload src/pages/ForkliftMonitoring.tsx
+05:25:57 [vite] page reload src/pages/ForkliftMonitoring.tsx
+05:29:07 [vite] page reload src/pages/ForkliftMonitoring.tsx
+07:09:34 [vite] hmr update /src/pages/InventoryManagement.tsx, /src/index.css
+07:14:39 [vite] hmr update /src/pages/PathTracking.tsx, /src/index.css
+07:23:32 [vite] hmr update /src/pages/PathTracking.tsx, /src/index.css
