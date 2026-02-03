@@ -1,0 +1,211 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Industrial IoT Dashboard Design System */
+
+@layer base {
+  :root {
+    /* Core backgrounds - Light industrial theme */
+    --background: 220 14% 96%;
+    --foreground: 220 20% 10%;
+
+    /* Card surfaces */
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 10%;
+
+    /* Popover */
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 10%;
+
+    /* Primary - Industrial blue */
+    --primary: 215 80% 45%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary - Muted industrial */
+    --secondary: 220 14% 90%;
+    --secondary-foreground: 220 20% 20%;
+
+    /* Muted surfaces */
+    --muted: 220 14% 92%;
+    --muted-foreground: 220 10% 45%;
+
+    /* Accent */
+    --accent: 215 70% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Destructive */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Status colors - Critical for IoT */
+    --status-safe: 142 70% 45%;
+    --status-safe-foreground: 0 0% 100%;
+    --status-warning: 38 92% 50%;
+    --status-warning-foreground: 0 0% 10%;
+    --status-danger: 0 72% 51%;
+    --status-danger-foreground: 0 0% 100%;
+    --status-offline: 220 10% 60%;
+    --status-offline-foreground: 0 0% 100%;
+
+    /* Chart colors */
+    --chart-1: 215 80% 55%;
+    --chart-2: 142 70% 45%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 280 65% 55%;
+    --chart-5: 180 65% 45%;
+
+    /* Borders and inputs */
+    --border: 220 14% 88%;
+    --input: 220 14% 88%;
+    --ring: 215 80% 45%;
+
+    --radius: 0.5rem;
+
+    /* Sidebar */
+    --sidebar-background: 220 20% 14%;
+    --sidebar-foreground: 220 10% 85%;
+    --sidebar-primary: 215 80% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 20% 20%;
+    --sidebar-accent-foreground: 220 10% 95%;
+    --sidebar-border: 220 15% 22%;
+    --sidebar-ring: 215 80% 55%;
+
+    /* Status bar */
+    --statusbar-background: 0 0% 100%;
+    --statusbar-foreground: 220 20% 10%;
+    --statusbar-border: 220 14% 88%;
+  }
+
+  .dark {
+    /* Dark industrial theme */
+    --background: 220 20% 8%;
+    --foreground: 220 10% 95%;
+
+    --card: 220 20% 12%;
+    --card-foreground: 220 10% 95%;
+
+    --popover: 220 20% 12%;
+    --popover-foreground: 220 10% 95%;
+
+    --primary: 215 80% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 15% 18%;
+    --secondary-foreground: 220 10% 85%;
+
+    --muted: 220 15% 15%;
+    --muted-foreground: 220 10% 55%;
+
+    --accent: 215 70% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Status colors stay consistent */
+    --status-safe: 142 70% 45%;
+    --status-safe-foreground: 0 0% 100%;
+    --status-warning: 38 92% 50%;
+    --status-warning-foreground: 0 0% 10%;
+    --status-danger: 0 72% 51%;
+    --status-danger-foreground: 0 0% 100%;
+    --status-offline: 220 10% 45%;
+    --status-offline-foreground: 0 0% 100%;
+
+    /* Chart colors - brighter for dark mode */
+    --chart-1: 215 85% 60%;
+    --chart-2: 142 75% 50%;
+    --chart-3: 38 95% 55%;
+    --chart-4: 280 70% 60%;
+    --chart-5: 180 70% 50%;
+
+    --border: 220 15% 20%;
+    --input: 220 15% 20%;
+    --ring: 215 80% 55%;
+
+    /* Sidebar - Dark */
+    --sidebar-background: 220 22% 6%;
+    --sidebar-foreground: 220 10% 85%;
+    --sidebar-primary: 215 80% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 20% 15%;
+    --sidebar-accent-foreground: 220 10% 95%;
+    --sidebar-border: 220 15% 15%;
+    --sidebar-ring: 215 80% 55%;
+
+    /* Status bar - Dark */
+    --statusbar-background: 220 20% 10%;
+    --statusbar-foreground: 220 10% 95%;
+    --statusbar-border: 220 15% 18%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  /* Custom scrollbar for industrial look */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-muted;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/30 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+}
+
+@layer components {
+  /* Simplified status indicator - no animation */
+  .status-pulse {
+    opacity: 1;
+  }
+
+  /* Removed glow effects for performance */
+}
+
+@layer utilities {
+  /* Gradient backgrounds */
+  .gradient-industrial {
+    background: linear-gradient(135deg, hsl(var(--card)) 0%, hsl(var(--muted)) 100%);
+  }
+
+  .gradient-primary {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(215 80% 35%) 100%);
+  }
+
+  .gradient-status-safe {
+    background: linear-gradient(135deg, hsl(var(--status-safe)) 0%, hsl(142 70% 35%) 100%);
+  }
+
+  .gradient-status-warning {
+    background: linear-gradient(135deg, hsl(var(--status-warning)) 0%, hsl(38 92% 40%) 100%);
+  }
+
+  .gradient-status-danger {
+    background: linear-gradient(135deg, hsl(var(--status-danger)) 0%, hsl(0 72% 41%) 100%);
+  }
+
+  /* Text gradients */
+  .text-gradient-primary {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(215 85% 65%) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}

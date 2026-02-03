@@ -1,0 +1,564 @@
+import { useState, useEffect } from 'react';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { DashboardCard, DashboardGrid } from '@/components/dashboard/DashboardCard';
+import { StatusIndicator, StatusDot, getThresholdStatus } from '@/components/dashboard/StatusIndicator';
+import apiService from '@/services/api';
+import type { Forklift, ForkliftStatus } from '@/types/warehouse';
+import { 
+  Truck, 
+  Battery, 
+  Wifi, 
+  Gauge, 
+  Activity,
+  Clock,
+  User,
+  MapPin,
+  ChevronRight,
+  Camera,
+  Video,
+  AlertCircle,
+  RefreshCw,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
+const statusColors: Record<ForkliftStatus, 'safe' | 'warning' | 'danger' | 'offline'> = {
+  active: 'safe',
+  moving: 'safe',
+  idle: 'warning',
+  charging: 'warning',
+  offline: 'offline',
+  maintenance: 'danger',
+};
+
+const statusLabels: Record<ForkliftStatus, string> = {
+  active: 'Active',
+  moving: 'Moving',
+  idle: 'Idle',
+  charging: 'Charging',
+  offline: 'Offline',
+  maintenance: 'Maintenance',
+};
+
+export default function ForkliftMonitoring() {
+  const [forklift, setForklift] = useState<any>(null);
+  const [cameraData, setCameraData] = useState<any>(null);
+  const [streamLoading, setStreamLoading] = useState(false);
+  const [streamError, setStreamError] = useState<string>('');
+  const [snapshotKey, setSnapshotKey] = useState<number>(Date.now());
+  const [loading, setLoading] = useState(true);
+
+  // Fetch forklift and camera data
+  useEffect(() => {
+    fetchForkliftData();
+    const interval = setInterval(fetchForkliftData, 5000); // Refresh every 5 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-refresh snapshot every second
+  useEffect(() => {
+    if (!cameraData?.ip || cameraData?.status !== 'online') return;
+    
+    const interval = setInterval(() => {
+      setSnapshotKey(Date.now());
+    }, 1000); // Refresh every 1 second for smooth video
+    
+    return () => clearInterval(interval);
+  }, [cameraData]);
+
+  const fetchForkliftData = async () => {
+    try {
+      console.log('📹 Fetching forklift camera data...');
+      const data = await apiService.getCameraForklifts();
+      console.log('📹 Camera data received:', data);
+      
+      // Find the first online forklift with a camera
+      const onlineForklift = data.forklifts.find((f: any) => f.ip && f.status === 'online');
+      
+      if (onlineForklift) {
+        setForklift(onlineForklift);
+        setCameraData(onlineForklift);
+        setStreamError('');
+      } else if (data.forklifts.length > 0) {
+        // Show first registered forklift even if offline
+        const firstForklift = data.forklifts[0];
+        setForklift(firstForklift);
+        setCameraData(firstForklift);
+        setStreamError(firstForklift.status === 'offline' ? 'Camera offline' : 'No camera configured');
+      } else {
+        setStreamError('No forklifts found. Upload an image from ESP32-CAM to register.');
+      }
+      setLoading(false);
+    } catch (error) {
+      console.error('❌ Failed to fetch forklift data:', error);
+      setStreamError('Backend not connected. Start backend server.');
+      setLoading(false);
+    }
+  };
+
+  const telemetryChartData = telemetry.map(t => ({
+    time: new Date(t.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+    speed: Number(t.speed.toFixed(1)),
+    vibrationZ: Number(t.vibrationZ.toFixed(2)),
+    battery: Number(t.batteryLevel.toFixed(0)),
+  }));
+
+  const motionStates = telemetry.reduce((acc, t) => {
+    acc[t.motionState] = (acc[t.motionState] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  return (
+    <DashboardLayout>
+      <div className="space-y-6 max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Forklift Camera Monitoring</h1>
+            <p className="text-muted-foreground">Live ESP32-CAM feed from forklift</p>
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={fetchForkliftData}
+            disabled={loading}
+          >
+            <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center h-96">
+            <div className="text-center">
+              <RefreshCw className="h-12 w-12 text-muted-foreground mx-auto mb-4 animate-spin" />
+              <p className="text-muted-foreground">Loading forklift data...</p>
+            </div>
+          </div>
+        ) : !forklift ? (
+          <div className="flex items-center justify-center h-96">
+            <div className="text-center">
+              <Camera className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground mb-2">No forklifts registered</p>
+              <p className="text-sm text-muted-foreground">Upload an image from ESP32-CAM to auto-register</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Camera Stream */}
+            <DashboardCard 
+              title={`Live Camera Feed - ${forklift.id}`}
+              description={cameraData?.ip ? `Streaming from ${cameraData.ip}` : 'Camera not available'}
+              actions={
+                <div className="flex items-center gap-2">
+                  {cameraData?.status === 'online' && (
+                    <StatusIndicator variant="safe" label="Live" size="sm" />
+                  )}
+                  {cameraData?.status === 'offline' && (
+                    <StatusIndicator variant="offline" label="Offline" size="sm" />
+                  )}
+                </div>
+              }
+            >
+              <div className="mt-4">
+                {cameraData?.ip && cameraData?.status === 'online' ? (
+                  <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                    <img 
+                      key={snapshotKey}
+                      src={`http://localhost:5000/api/camera/${forklift.id}/stream?t=${snapshotKey}`}
+                      alt={`${forklift.id} camera snapshot`}
+                      className="w-full h-full object-contain"
+                      onError={(e) => {
+                        setStreamError('Snapshot unavailable. Check camera connection.');
+                      }}
+                      onLoad={() => setStreamError('')}
+                    />
+                    {streamError && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                        <div className="text-center">
+                          <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground">{streamError}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
+                    <div className="text-center">
+                      <Video className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">
+                        {cameraData?.status === 'offline' 
+                          ? 'Camera offline. Check ESP32-CAM connection.' 
+                          : streamError || 'No camera configured for this forklift'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Stream Debug Info */}
+                {cameraData && (
+                  <div className="mt-4 p-3 bg-muted rounded-lg text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Forklift ID:</span>
+                      <span className="font-mono">{cameraData.id}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Camera IP:</span>
+                      <span className="font-mono">{cameraData.ip || 'Not registered'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Status:</span>
+                      <span className={cn(
+                        "font-medium",
+                        cameraData.status === 'online' && "text-green-600",
+                        cameraData.status === 'offline' && "text-red-600"
+                      )}>
+                        {cameraData.status}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Backend Stream:</span>
+                      <span className="font-mono text-xs">
+                        http://localhost:5000/api/camera/{forklift.id}/stream
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Direct ESP32:</span>
+                      <span className="font-mono text-xs">
+                        {cameraData.ip ? `http://${cameraData.ip}/snapshot` : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Refresh Rate:</span>
+                      <span>1 FPS (1 second interval)</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </DashboardCard>
+            <ScrollArea className="h-[600px]">
+              <div className="divide-y">
+                {mockForklifts.map((forklift) => (
+                  <button
+                    key={forklift.id}
+                    onClick={() => setSelectedForklift(forklift)}
+                    className={cn(
+                      'w-full flex items-center gap-4 px-4 py-4 text-left hover:bg-muted/50 transition-colors',
+                      selectedForklift.id === forklift.id && 'bg-muted'
+                    )}
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <Truck className={cn(
+                        "h-5 w-5",
+                        forklift.status === 'offline' ? 'text-muted-foreground' : 'text-primary'
+                      )} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{forklift.id}</span>
+                        <StatusIndicator 
+                          variant={statusColors[forklift.status]} 
+                          label={statusLabels[forklift.status]}
+                          size="sm"
+                        />
+                      </div>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Battery className="h-3 w-3" />
+                          {forklift.batteryLevel}%
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Wifi className="h-3 w-3" />
+                          {forklift.signalStrength}%
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+          </DashboardCard>
+
+          {/* Forklift Detail Panel */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Camera Stream */}
+            <DashboardCard 
+              title="Live Camera Feed"
+              description={cameraData?.ip ? `Streaming from ${cameraData.ip}` : 'Camera not available'}
+              actions={
+                <div className="flex items-center gap-2">
+                  {cameraData?.status === 'online' && (
+                    <StatusIndicator variant="safe" label="Live" size="sm" />
+                  )}
+                  {cameraData?.status === 'offline' && (
+                    <StatusIndicator variant="offline" label="Offline" size="sm" />
+                  )}
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={fetchCameraInfo}
+                  >
+                    <Camera className="h-4 w-4 mr-2" />
+                    Refresh
+                  </Button>
+                </div>
+              }
+            >
+              <div className="mt-4">
+                {cameraData?.ip && cameraData?.status === 'online' ? (
+                  <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                    <img 
+                      key={snapshotKey}
+                      src={`http://${cameraData.ip}/snapshot?t=${snapshotKey}`}
+                      alt={`${selectedForklift.id} camera snapshot`}
+                      className="w-full h-full object-contain"
+                      onError={(e) => {
+                        setStreamError('Snapshot unavailable. Check camera connection.');
+                        e.currentTarget.style.display = 'none';
+                      }}
+                      onLoad={() => setStreamError('')}
+                    />
+                    {streamError && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                        <div className="text-center">
+                          <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground">{streamError}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
+                    <div className="text-center">
+                      <Video className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">
+                        {cameraData?.status === 'offline' 
+                          ? 'Camera offline' 
+                          : streamError || 'No camera configured for this forklift'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Snapshot URL: {cameraData?.ip ? `http://${cameraData.ip}/snapshot` : 'Not available'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Stream Debug Info */}
+                {cameraData && (
+                  <div className="mt-4 p-3 bg-muted rounded-lg text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Forklift ID:</span>
+                      <span className="font-mono">{cameraData.id}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Camera IP:</span>
+                      <span className="font-mono">{cameraData.ip || 'Not registered'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Status:</span>
+                      <span className={cameraData.status === 'online' ? 'text-green-600' : 'text-red-600'}>
+                        {cameraData.status}
+                      </span>
+                    </div>
+                    {cameraData.stream_url && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Stream URL:</span>
+                        <a 
+                          href={`http://${cameraData.ip}/stream`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline font-mono"
+                        >
+                          Open in new tab
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </DashboardCard>
+
+            {/* Overview */}
+            <DashboardCard 
+              title={selectedForklift.name}
+              description={`ID: ${selectedForklift.id}`}
+              actions={
+                <StatusIndicator 
+                  variant={statusColors[selectedForklift.status]} 
+                  label={statusLabels[selectedForklift.status]}
+                />
+              }
+            >
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                <div className="p-4 rounded-lg bg-muted">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <User className="h-4 w-4" />
+                    <span className="text-xs">Operator</span>
+                  </div>
+                  <div className="font-medium">{selectedForklift.operator || 'Unassigned'}</div>
+                </div>
+                <div className="p-4 rounded-lg bg-muted">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <MapPin className="h-4 w-4" />
+                    <span className="text-xs">Zone</span>
+                  </div>
+                  <div className="font-medium">{selectedForklift.zone}</div>
+                </div>
+                <div className="p-4 rounded-lg bg-muted">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <Battery className="h-4 w-4" />
+                    <span className="text-xs">Battery</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{selectedForklift.batteryLevel}%</span>
+                    <StatusDot 
+                      variant={getThresholdStatus(selectedForklift.batteryLevel, 30, 15, true)} 
+                      size="sm"
+                    />
+                  </div>
+                </div>
+                <div className="p-4 rounded-lg bg-muted">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <Wifi className="h-4 w-4" />
+                    <span className="text-xs">Signal</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{selectedForklift.signalStrength}%</span>
+                    <StatusDot 
+                      variant={getThresholdStatus(selectedForklift.signalStrength, 70, 50, true)} 
+                      size="sm"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Speed Gauge */}
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-muted-foreground">Current Speed</span>
+                  <span className="text-2xl font-bold">
+                    {selectedForklift.speed.toFixed(1)} 
+                    <span className="text-sm font-normal text-muted-foreground ml-1">km/h</span>
+                  </span>
+                </div>
+                <Progress 
+                  value={(selectedForklift.speed / selectedForklift.maxSpeed) * 100} 
+                  className="h-3"
+                />
+                <div className="flex justify-between mt-1 text-xs text-muted-foreground">
+                  <span>0</span>
+                  <span>{selectedForklift.maxSpeed} km/h</span>
+                </div>
+              </div>
+
+              {/* Last Update */}
+              <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                <Clock className="h-4 w-4" />
+                <span>Last update: {new Date(selectedForklift.lastUpdate).toLocaleString()}</span>
+              </div>
+          </div>
+        )}
+      </div>
+    </DashboardLayout>
+  );
+}
+              <DashboardCard title="Vibration (Z-axis)" description="Accelerometer data">
+                <div className="h-[180px] mt-4">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={telemetryChartData}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="time" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                      <YAxis domain={[0, 1]} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px',
+                        }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="vibrationZ"
+                        stroke="hsl(var(--chart-4))"
+                        strokeWidth={2}
+                        dot={false}
+                        name="Vibration"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </DashboardCard>
+
+              <DashboardCard title="Battery Trend" description="Discharge over time">
+                <div className="h-[180px] mt-4">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={telemetryChartData}>
+                      <defs>
+                        <linearGradient id="batteryGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="hsl(var(--status-safe))" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="hsl(var(--status-safe))" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="time" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px',
+                        }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="battery"
+                        stroke="hsl(var(--status-safe))"
+                        strokeWidth={2}
+                        fill="url(#batteryGradient)"
+                        name="Battery (%)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </DashboardCard>
+            </div>
+
+            {/* Motion State Timeline */}
+            <DashboardCard title="Motion State Distribution" description="Last hour activity breakdown">
+              <div className="flex items-center gap-4 mt-4">
+                {Object.entries(motionStates).map(([state, count]) => {
+                  const total = telemetry.length;
+                  const percent = Math.round((count / total) * 100);
+                  return (
+                    <div key={state} className="flex-1 text-center">
+                      <div className="text-2xl font-bold">{percent}%</div>
+                      <div className="text-xs text-muted-foreground capitalize">{state}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex h-4 rounded-full overflow-hidden mt-4">
+                {Object.entries(motionStates).map(([state, count], i) => {
+                  const total = telemetry.length;
+                  const percent = (count / total) * 100;
+                  const colors = ['bg-status-safe', 'bg-chart-1', 'bg-chart-3', 'bg-chart-4'];
+                  return (
+                    <div 
+                      key={state}
+                      className={cn('transition-all', colors[i % colors.length])}
+                      style={{ width: `${percent}%` }}
+                    />
+                  );
+                })}
+              </div>
+            </DashboardCard>
+          </div>
+        </div>
+      </div>
+    </DashboardLayout>
+  );
+}
