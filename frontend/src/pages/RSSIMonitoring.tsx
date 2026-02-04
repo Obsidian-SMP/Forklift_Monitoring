@@ -4,14 +4,14 @@
  * Displays live RSSI readings, gateway status, and calculated forklift positions
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { GatewaySignalComponent } from '@/components/dashboard/GatewaySignalComponent';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { AlertCircle, Wifi, MapPin, Zap, Activity, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { AlertCircle, Wifi, MapPin, Zap, Activity, Plus, RefreshCw, Trash2, Edit } from 'lucide-react';
 import apiService from '@/services/api';
 
 // Convert UTC timestamp to Indian Standard Time (IST - UTC+5:30)
@@ -45,7 +45,7 @@ export default function RSSIMonitoring() {
   const [forklifts, setForklifts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [refreshInterval, setRefreshInterval] = useState(2000);
+  const [refreshInterval, setRefreshInterval] = useState(3000); // Reduced from 2s to 3s
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   // Gateway management state
@@ -59,23 +59,45 @@ export default function RSSIMonitoring() {
   const [gatewaySuccess, setGatewaySuccess] = useState<string | null>(null);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
 
-  // Fetch all monitoring data
-  const fetchData = async () => {
+  // Edit gateway state
+  const [editingGateway, setEditingGateway] = useState<any | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    location_x: 0,
+    location_y: 0,
+    location_z: 0,
+  });
+
+  // Fetch all monitoring data - OPTIMIZED
+  const fetchData = useCallback(async () => {
     try {
       setError(null);
 
-      // Fetch in parallel
+      // Fetch in parallel - reduced RSSI history from 50 to 25 (only showing 20)
       const results = await Promise.allSettled([
         apiService.getGateways(),
-        apiService.getRSSIHistory(50),
+        apiService.getRSSIHistory(25), // Reduced payload size
         apiService.getLatestPosition(),
-        apiService.getForklifts(),
+        // Removed forklift fetch - not critical for RSSI monitoring
       ]);
 
-      const [gatewaysRes, historyRes, positionRes, forkliftRes] = results;
+      const [gatewaysRes, historyRes, positionRes] = results;
 
       if (gatewaysRes.status === 'fulfilled') {
-        setGateways(gatewaysRes.value.gateways || []);
+        const allGateways = gatewaysRes.value.gateways || [];
+        
+        // Sort gateways: active ones at top, inactive at bottom
+        const sortedGateways = [...allGateways].sort((a, b) => {
+          // Active gateways come first
+          if (a.is_active && !b.is_active) return -1;
+          if (!a.is_active && b.is_active) return 1;
+          // Within same group, sort by name
+          return a.name.localeCompare(b.name);
+        });
+        
+        const activeCount = sortedGateways.filter((gw: any) => gw.is_active).length;
+        console.log(`📡 RSSI Monitor: ${activeCount} active gateways, ${allGateways.length - activeCount} inactive (${allGateways.length} total)`);
+        setGateways(sortedGateways);
       }
       if (historyRes.status === 'fulfilled') {
         setRSSIHistory(historyRes.value.readings || []);
@@ -83,16 +105,13 @@ export default function RSSIMonitoring() {
       if (positionRes.status === 'fulfilled') {
         setPosition(positionRes.value.position);
       }
-      if (forkliftRes.status === 'fulfilled') {
-        setForklifts(forkliftRes.value.forklifts || []);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch data');
       console.error('RSSI fetch error:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []); // useCallback for performance
 
   // Initial fetch
   useEffect(() => {
@@ -106,11 +125,22 @@ export default function RSSIMonitoring() {
     return () => clearInterval(interval);
   }, [refreshInterval, autoRefresh]);
 
-  // Get latest RSSI for each gateway
-  const getLatestRSSI = (gatewayId: string): number | null => {
-    const readings = rssiHistory.filter((r) => r.gateway_id === gatewayId);
-    return readings.length > 0 ? readings[readings.length - 1].rssi : null;
-  };
+  // Get latest RSSI for each gateway - MEMOIZED for performance
+  const latestRSSIMap = useMemo(() => {
+    const map = new Map<string, number>();
+    // Build map in reverse to get latest readings efficiently
+    for (let i = rssiHistory.length - 1; i >= 0; i--) {
+      const reading = rssiHistory[i];
+      if (!map.has(reading.gateway_id)) {
+        map.set(reading.gateway_id, reading.rssi);
+      }
+    }
+    return map;
+  }, [rssiHistory]);
+
+  const getLatestRSSI = useCallback((gatewayId: string): number | null => {
+    return latestRSSIMap.get(gatewayId) ?? null;
+  }, [latestRSSIMap]);
 
   // Get RSSI signal strength indicator
   const getSignalStatus = (rssi: number | null) => {
@@ -183,13 +213,81 @@ export default function RSSIMonitoring() {
     }
   };
 
+  // Edit gateway handlers
+  const handleEditGateway = (gateway: any) => {
+    setEditingGateway(gateway);
+    setEditFormData({
+      name: gateway.name,
+      location_x: gateway.location.x,
+      location_y: gateway.location.y,
+      location_z: gateway.location.z,
+    });
+    setGatewayError(null);
+    setGatewaySuccess(null);
+  };
+
+  const handleUpdateGateway = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGateway) return;
+
+    setGatewaySubmitting(true);
+    setGatewayError(null);
+
+    try {
+      await apiService.updateGateway(editingGateway.gateway_id, {
+        name: editFormData.name,
+        location_x: parseFloat(editFormData.location_x.toString()),
+        location_y: parseFloat(editFormData.location_y.toString()),
+        location_z: parseFloat(editFormData.location_z.toString()),
+      });
+
+      setGatewaySuccess(`Gateway "${editFormData.name}" updated successfully!`);
+      setTimeout(() => setGatewaySuccess(null), 3000);
+      setEditingGateway(null);
+      fetchData();
+    } catch (err) {
+      setGatewayError(err instanceof Error ? err.message : 'Failed to update gateway');
+    } finally {
+      setGatewaySubmitting(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingGateway(null);
+    setEditFormData({
+      name: '',
+      location_x: 0,
+      location_y: 0,
+      location_z: 0,
+    });
+    setGatewayError(null);
+  };
+
   if (loading && gateways.length === 0) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-96">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading RSSI data...</p>
+        <div className="max-w-7xl mx-auto space-y-6">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+                📡 BLE Gateway & Position Monitor
+              </h1>
+              <p className="text-gray-600 dark:text-gray-300">
+                Loading RSSI data...
+              </p>
+            </div>
+          </div>
+          
+          {/* Skeleton Loading - Gateway Cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-slate-700 rounded-lg p-6 shadow-lg animate-pulse">
+                <div className="h-6 bg-slate-600 rounded w-3/4 mb-4"></div>
+                <div className="h-10 bg-slate-600 rounded w-1/2 mb-4"></div>
+                <div className="h-2 bg-slate-600 rounded mb-4"></div>
+                <div className="h-4 bg-slate-600 rounded w-2/3"></div>
+              </div>
+            ))}
           </div>
         </div>
       </DashboardLayout>
@@ -268,6 +366,13 @@ export default function RSSIMonitoring() {
                       }`}
                     ></div>
                     <button
+                      onClick={() => handleEditGateway(gateway)}
+                      className="p-2 hover:bg-blue-500/20 rounded transition text-blue-400 hover:text-blue-300"
+                      title="Edit gateway position"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
                       onClick={() => handleDeleteGateway(gateway.gateway_id, gateway.name)}
                       className="p-2 hover:bg-red-500/20 rounded transition text-red-400 hover:text-red-300"
                       title="Delete gateway"
@@ -329,7 +434,86 @@ export default function RSSIMonitoring() {
           })}
         </div>
 
-        {/* Position & Forklift Info */}
+        {/* Edit Gateway Modal */}
+        {editingGateway && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-2xl">
+              <h3 className="text-xl font-bold text-white mb-4">
+                Edit Gateway: {editingGateway.name}
+              </h3>
+              <form onSubmit={handleUpdateGateway} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Gateway Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.name}
+                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                    className="w-full px-4 py-2 bg-slate-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    X Position (meters)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editFormData.location_x}
+                    onChange={(e) => setEditFormData({ ...editFormData, location_x: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-slate-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Y Position (meters)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editFormData.location_y}
+                    onChange={(e) => setEditFormData({ ...editFormData, location_y: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-slate-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Z Position (meters)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editFormData.location_z}
+                    onChange={(e) => setEditFormData({ ...editFormData, location_z: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-slate-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button
+                    type="submit"
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition"
+                  >
+                    Update Gateway
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Position & Stats */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Calculated Position */}
           {position && (
@@ -361,7 +545,7 @@ export default function RSSIMonitoring() {
                     Accuracy: ±{position.accuracy.toFixed(2)}m
                   </div>
                   <div className="text-xs text-gray-400 mt-1">
-                    Based on trilateration of {gateways.length} gateways
+                    Based on {position.gateway_count || gateways.length} active gateways
                   </div>
                 </div>
               )}
@@ -373,41 +557,24 @@ export default function RSSIMonitoring() {
             </div>
           )}
 
-          {/* Forklift Status */}
-          {forklifts.length > 0 && (
-            <div className="bg-slate-700 rounded-lg p-6 shadow-lg">
-              <h2 className="text-2xl font-bold text-white mb-4">🚜 Forklifts</h2>
-              <div className="space-y-3">
-                {forklifts.slice(0, 5).map((forklift) => (
-                  <div
-                    key={forklift.forklift_id}
-                    className="p-3 bg-slate-600 rounded"
-                  >
-                    <div className="font-semibold text-white">
-                      {forklift.forklift_id}
-                    </div>
-                    <div className="text-xs text-gray-300 mt-1">
-                      Status:{' '}
-                      <span
-                        className={
-                          forklift.status === 'active'
-                            ? 'text-green-300'
-                            : 'text-yellow-300'
-                        }
-                      >
-                        {forklift.status}
-                      </span>
-                    </div>
-                    {forklift.battery_level !== undefined && (
-                      <div className="text-xs text-gray-300">
-                        Battery: {forklift.battery_level}%
-                      </div>
-                    )}
-                  </div>
-                ))}
+          {/* System Stats */}
+          <div className="bg-slate-700 rounded-lg p-6 shadow-lg">
+            <h2 className="text-2xl font-bold text-white mb-4">📊 System Stats</h2>
+            <div className="space-y-3">
+              <div className="p-3 bg-slate-600 rounded">
+                <div className="text-sm text-gray-400">Active Gateways</div>
+                <div className="text-2xl font-bold text-green-400">{gateways.length}</div>
+              </div>
+              <div className="p-3 bg-slate-600 rounded">
+                <div className="text-sm text-gray-400">RSSI Readings (Last Hour)</div>
+                <div className="text-2xl font-bold text-blue-400">{rssiHistory.length}</div>
+              </div>
+              <div className="p-3 bg-slate-600 rounded">
+                <div className="text-sm text-gray-400">Refresh Interval</div>
+                <div className="text-2xl font-bold text-purple-400">{refreshInterval / 1000}s</div>
               </div>
             </div>
-          )}
+          </div>
         </div>
 
         {/* RSSI History */}
@@ -419,9 +586,10 @@ export default function RSSIMonitoring() {
               onChange={(e) => setRefreshInterval(Number(e.target.value))}
               className="px-3 py-1 bg-slate-600 text-white rounded text-sm"
             >
-              <option value={1000}>1s</option>
               <option value={2000}>2s</option>
+              <option value={3000}>3s (Default)</option>
               <option value={5000}>5s</option>
+              <option value={10000}>10s</option>
             </select>
           </div>
 

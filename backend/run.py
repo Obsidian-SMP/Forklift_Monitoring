@@ -87,8 +87,6 @@ def save_dht_readings():
     
     while True:
         try:
-            time.sleep(60)  # Wait 1 minute
-            
             reading = get_dht_reading()
             
             if reading and reading.get('status') in ['success', 'unavailable']:
@@ -98,9 +96,12 @@ def save_dht_readings():
                     sensor_id='dht11_gpio21'
                 )
                 print(f"[DHT] Saved: {reading['temperature']}°C, {reading['humidity']}%")
+            
+            time.sleep(60)  # Wait 1 minute before next reading
                 
         except Exception as e:
             print(f"[DHT] Save error: {e}")
+            time.sleep(60)  # Wait before retry on error
 
 app = create_app()
 

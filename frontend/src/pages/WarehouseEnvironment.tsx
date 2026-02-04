@@ -53,7 +53,7 @@ const HUMIDITY_WARNING_LOW = 30;
 const HUMIDITY_DANGER_LOW = 20;
 
 export default function WarehouseEnvironment() {
-  const [timeRange, setTimeRange] = useState<TimeRange>('24h');
+  const [timeRange, setTimeRange] = useState<TimeRange>('1h');
   const [dhtData, setDhtData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   

@@ -24,14 +24,16 @@ def get_environment_history():
     try:
         # Get time range from query params
         hours = int(request.args.get('hours', 24))
+        limit = int(request.args.get('limit', 1000))  # Add limit to prevent loading too much data
         start_time = datetime.utcnow() - timedelta(hours=hours)
         
-        sensors = WarehouseSensor.select().where(
+        # Convert to list first to avoid multiple queries
+        sensors = list(WarehouseSensor.select().where(
             WarehouseSensor.timestamp >= start_time
-        ).order_by(WarehouseSensor.timestamp.desc())
+        ).order_by(WarehouseSensor.timestamp.desc()).limit(limit))
         
         return jsonify({
-            'count': sensors.count(),
+            'count': len(sensors),
             'data': [sensor.to_dict() for sensor in sensors]
         }), 200
     except Exception as e:

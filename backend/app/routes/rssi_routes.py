@@ -1,12 +1,13 @@
 """
 RSSI Routes for Mobile App Gateway Integration
 Handles Bluetooth RSSI data from mobile phones and calculates forklift positions
+Enhanced with new positioning engine (WLS + EKF)
 """
 
 from flask import Blueprint, jsonify, request
 from datetime import datetime, timedelta
 from app.models import BLERSSIData, WiFiGateway, ForkliftPositionTrilateration
-from app.services.trilateration_service import TrilatationService
+from app.services.positioning_engine import get_positioning_engine
 from app.gateway_config import GATEWAYS
 
 rssi_bp = Blueprint('rssi', __name__)
@@ -90,6 +91,10 @@ def receive_rssi():
                     rssi=rssi,
                     timestamp=datetime.utcnow()
                 )
+                # Add to positioning engine for real-time processing
+                engine = get_positioning_engine()
+                engine.add_rssi_sample(gateway_id, rssi, datetime.utcnow())
+                
                 print(f"📡 RSSI received: {gateway_id} → {forklift_id}: {rssi} dBm")
                 break  # Success, exit retry loop
             except Exception as db_error:
@@ -121,54 +126,31 @@ def receive_rssi():
         except Exception as gw_error:
             print(f"⚠️ Gateway update failed (non-critical): {gw_error}")
         
-        # Try to calculate position with latest readings (non-critical, don't fail if error)
+        # Get latest position from positioning engine (non-blocking)
         try:
-            position = TrilatationService.calculate_position(forklift_id)
+            engine = get_positioning_engine()
+            position = engine.get_latest_position()
+            
             if position:
                 gw_count = position.get('gateway_count', 0)
                 accuracy = position.get('accuracy', 0)
-                print(f"✅ Position calculated: ({position.get('x', 0):.2f}, {position.get('y', 0):.2f}) with {gw_count} gateways (accuracy: {accuracy:.2f}m)")
+                print(f"✅ Position: ({position.get('x', 0):.2f}, {position.get('y', 0):.2f}) | {gw_count} GW | {accuracy:.2f}m accuracy")
             else:
-                # Get latest RSSI to see which gateways are active
-                gateway_rssi = TrilatationService.get_latest_rssi_per_gateway(forklift_id, 10)
-                print(f"⚠️ Not enough gateways for position calculation (have {len(gateway_rssi)}, need 2+): {list(gateway_rssi.keys())}")
-        except Exception as tril_error:
-            print(f"⚠️ Trilateration error (non-critical): {tril_error}")
-            import traceback
-            traceback.print_exc()
+                print(f"⚠️ Position not yet calculated (engine starting up)")
+        except Exception as pos_error:
+            print(f"⚠️ Position retrieval error: {pos_error}")
             position = None
         
-        if position and position.get('accuracy', 999) < 10.0:  # Good accuracy
-            try:
-                saved_pos = TrilatationService.save_calculated_position(forklift_id, position)
-                
-                # Broadcast position update via WebSocket
-                try:
-                    from flask import current_app
-                    socketio = current_app.extensions.get('socketio')
-                    if socketio:
-                        socketio.emit('position_update', saved_pos, namespace='/')
-                        print(f"📡 WebSocket: Position update broadcasted")
-                except Exception as ws_error:
-                    print(f"⚠️ WebSocket broadcast failed: {ws_error}")
-                    
-            except Exception as save_pos_error:
-                print(f"⚠️ Failed to save position: {save_pos_error}")
-                saved_pos = None
-                
-            return jsonify({
-                'status': 'success',
-                'message': 'RSSI recorded and position calculated',
-                'rssi_record': ble_reading.to_dict(),
-                'position': saved_pos
-            }), 201
-        else:
-            return jsonify({
-                'status': 'success',
-                'message': 'RSSI recorded (waiting for more data)',
-                'rssi_record': ble_reading.to_dict(),
-                'position': position
-            }), 201
+        # Return response with optional position data
+        return jsonify({
+            'status': 'success',
+            'message': 'RSSI received and processed',
+            'rssi': rssi,
+            'gateway_id': gateway_id,
+            'forklift_id': forklift_id,
+            'position': position if position else None,
+            'timestamp': datetime.utcnow().isoformat() + 'Z'
+        }), 201
     
     except Exception as e:
         import traceback
@@ -299,21 +281,31 @@ def debug_info():
 @rssi_bp.route('/history', methods=['GET'])
 def get_rssi_history():
     """
-    Get RSSI history for a forklift
+    Get RSSI history for a forklift - OPTIMIZED
     
     Query params:
     - forklift_id: (default: forklift_001)
     - hours: (default: 1) - how many hours back
-    - limit: (default: 100) - max records
+    - limit: (default: 50) - max records (reduced from 100)
     """
     try:
         forklift_id = request.args.get('forklift_id', 'forklift_001')
         hours = int(request.args.get('hours', 1))
-        limit = int(request.args.get('limit', 100))
+        limit = int(request.args.get('limit', 50))  # Reduced default from 100
+        
+        # Cap limit at 100 to prevent excessive data transfer
+        limit = min(limit, 100)
         
         start_time = datetime.utcnow() - timedelta(hours=hours)
         
-        readings = list(BLERSSIData.select().where(
+        # Optimized query - only fetch required fields and order DESC for latest first
+        readings = list(BLERSSIData.select(
+            BLERSSIData.id,
+            BLERSSIData.gateway_id,
+            BLERSSIData.forklift_id,
+            BLERSSIData.rssi,
+            BLERSSIData.timestamp
+        ).where(
             (BLERSSIData.forklift_id == forklift_id) &
             (BLERSSIData.timestamp >= start_time)
         ).order_by(BLERSSIData.timestamp.desc()).limit(limit))
@@ -331,21 +323,24 @@ def get_rssi_history():
 @rssi_bp.route('/position/latest', methods=['GET'])
 def get_latest_position():
     """
-    Get latest calculated forklift position
-    
-    Query params:
-    - forklift_id: (default: forklift_001)
+    Get the latest calculated position
+    Faster than querying database, uses in-memory cache from positioning engine
     """
     try:
-        forklift_id = request.args.get('forklift_id', 'forklift_001')
-        
-        position = ForkliftPositionTrilateration.select().where(
-            ForkliftPositionTrilateration.forklift_id == forklift_id
-        ).order_by(ForkliftPositionTrilateration.timestamp.desc()).first()
+        engine = get_positioning_engine()
+        position = engine.get_latest_position()
         
         if position:
-            return jsonify(position.to_dict()), 200
-        return jsonify({'message': 'No position data available'}), 404
+            return jsonify({
+                'status': 'success',
+                'position': position
+            }), 200
+        else:
+            return jsonify({
+                'status': 'no_data',
+                'message': 'No position calculated yet (waiting for RSSI data)',
+                'position': None
+            }), 404
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -32,9 +32,13 @@ function convertToIST(timestamp: string | number | Date): string {
 }
 
 interface Gateway {
+  id: number;
   gateway_id: string;
   name: string;
-  location: { x: number; y: number; z?: number };
+  location: { x: number; y: number; z: number };
+  is_active: boolean;
+  last_seen: string;
+  created_at: string;
 }
 
 interface Position {
@@ -139,86 +143,108 @@ export default function PathTracking() {
     try {
       const gatewaysRes = await apiService.getGateways();
       const gws = gatewaysRes.gateways || [];
-      setGateways(gws);
+      // Filter only active gateways for display
+      const activeGateways = gws.filter((gw: Gateway) => gw.is_active);
+      setGateways(activeGateways);
+      console.log(`✅ Loaded ${activeGateways.length} active gateways (${gws.length} total)`);
     } catch (err) {
       console.error('Error fetching gateways:', err);
     }
   };
 
-  // Fetch position and history (auto-refreshes every 3 seconds via polling)
-  const fetchPositionData = async () => {
+  // Load initial position history (one-time fetch on mount)
+  const fetchPositionHistory = async () => {
     try {
-      setError(null);
-
-      const [positionRes, historyRes] = await Promise.allSettled([
-        apiService.getLatestPosition(),
-        apiService.getPositionHistory(2), // 2 hours history
-      ]);
-
-      // Handle position response - 404 is OK when no data yet, not an error
-      if (positionRes.status === 'fulfilled') {
-        const data = positionRes.value as any;
-        // Backend returns: { id, forklift_id, position: {x, y, z}, accuracy, gateway_count, method, timestamp }
-        if (data.position) {
-          if (typeof data.position === 'object' && data.position.x !== undefined) {
-            // Extract all position fields from backend response
-            setCurrentPosition({
-              x: data.position.x,
-              y: data.position.y,
-              z: data.position.z || 0,
-              accuracy: data.accuracy,
-              timestamp: data.timestamp,
-              gateway_count: data.gateway_count,
-              method: data.method,
-              velocity_x: data.velocity_x,
-              velocity_y: data.velocity_y,
-              speed: data.speed,
-            });
-          } else {
-            // Position might be null/undefined
-            setCurrentPosition(null);
-          }
-        } else {
-          setCurrentPosition(null);
-        }
-      } else if (positionRes.status === 'rejected') {
-        // Silently ignore 404 errors - position data hasn't been calculated yet
-        const error = positionRes.reason as any;
-        if (error?.message?.includes('404')) {
-          setCurrentPosition(null); // No position data available yet
-        } else {
-          console.error('Error fetching position:', error);
-        }
-      }
-
-      if (historyRes.status === 'fulfilled') {
-        const historyData = historyRes.value as any;
-        const trackData = historyData.track || [];
-        
-        // Transform track data to Position format
-        // Backend returns: {position: {x, y, z}, accuracy, timestamp, etc.}
-        const positions: Position[] = trackData.map((item: any) => {
-          return {
-            x: item.position?.x || 0,
-            y: item.position?.y || 0,
-            z: item.position?.z || 0,
-            accuracy: item.accuracy,
-            timestamp: item.timestamp,
-            gateway_count: item.gateway_count,
-            method: item.method,
-            velocity_x: item.velocity_x,
-            velocity_y: item.velocity_y,
-            speed: item.speed,
-          };
-        });
-        
+      // Use standard RSSI API endpoint for history instead of SSE stream
+      const response = await fetch('http://10.136.57.165:5000/api/rssi/position/history?limit=200');
+      if (response.ok) {
+        const data = await response.json();
+        const positions: Position[] = (data.track || []).map((item: any) => ({
+          x: item.position?.x || item.calculated_x || 0,
+          y: item.position?.y || item.calculated_y || 0,
+          z: item.position?.z || item.calculated_z || 0,
+          accuracy: item.accuracy,
+          timestamp: item.timestamp,
+          gateway_count: item.gateway_count,
+          method: item.method,
+          velocity_x: item.velocity_x,
+          velocity_y: item.velocity_y,
+          speed: item.speed,
+        }));
         setPathHistory(positions);
+        console.log(`✅ Loaded ${positions.length} historical positions`);
       }
-
-      setLoading(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch data');
+      console.error('Error fetching position history:', err);
+    }
+  };
+
+  // Connect to SSE stream for real-time position updates
+  const connectSSE = () => {
+    try {
+      const eventSource = new EventSource('http://10.136.57.165:5000/api/stream/positions');
+      
+      eventSource.onopen = () => {
+        console.log('✅ SSE connection established');
+        setIsConnected(true);
+        setError(null);
+        setLoading(false);
+      };
+      
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // Update current position with all fields from backend
+          const position: Position = {
+            x: data.x,
+            y: data.y,
+            z: data.z || 0,
+            accuracy: data.accuracy,
+            timestamp: data.timestamp,
+            gateway_count: data.gateway_count,
+            method: data.method,
+            velocity_x: data.velocity_x,
+            velocity_y: data.velocity_y,
+            speed: data.speed,
+          };
+          
+          setCurrentPosition(position);
+          
+          // Add to path history (keep last 200 positions)
+          setPathHistory(prev => {
+            const updated = [...prev, position];
+            return updated.slice(-200); // Keep only last 200 positions
+          });
+          
+          // Check zone entry
+          checkZoneEntry(position);
+          
+        } catch (err) {
+          console.error('Error parsing SSE data:', err);
+        }
+      };
+      
+      eventSource.onerror = (err) => {
+        console.error('❌ SSE connection error:', err);
+        setIsConnected(false);
+        eventSource.close();
+        
+        // Attempt reconnection after 3 seconds
+        setTimeout(() => {
+          if (autoRefresh) {
+            console.log('🔄 Attempting SSE reconnection...');
+            connectSSE();
+          }
+        }, 3000);
+      };
+      
+      return eventSource;
+    } catch (err) {
+      console.error('Error establishing SSE connection:', err);
+      setError('Failed to connect to positioning stream');
       setLoading(false);
+      return null;
     }
   };
 
@@ -241,29 +267,36 @@ export default function PathTracking() {
     fetchDetectedObjects();
   }, []);
 
-  // Auto-refresh position data via polling (every 3 seconds)
+  // Connect to SSE stream and load initial history
   useEffect(() => {
     if (!autoRefresh) return;
 
-    // Initial fetch
-    fetchPositionData();
-    fetchDetectedObjects();
+    let eventSource: EventSource | null = null;
 
-    // Poll position data every 3 seconds
-    const positionInterval = setInterval(() => {
-      fetchPositionData();
-    }, 3000);
+    // Load initial position history
+    fetchPositionHistory();
 
-    // Poll detected objects every 2 seconds
-    const objectInterval = setInterval(() => {
-      fetchDetectedObjects();
-    }, 2000);
+    // Connect to SSE stream for real-time updates
+    eventSource = connectSSE();
 
     return () => {
-      clearInterval(positionInterval);
-      clearInterval(objectInterval);
+      // Cleanup: close SSE connection on unmount or when autoRefresh disabled
+      if (eventSource) {
+        console.log('🔌 Closing SSE connection');
+        eventSource.close();
+      }
     };
   }, [autoRefresh, zones]);
+
+  // Poll detected objects every 2 seconds (separate from position updates)
+  useEffect(() => {
+    if (!autoRefresh) return;
+
+    fetchDetectedObjects();
+    const objectInterval = setInterval(fetchDetectedObjects, 2000);
+
+    return () => clearInterval(objectInterval);
+  }, [autoRefresh]);
 
   // Manual refresh for gateways (called after add/delete gateway)
   const handleRefreshGateways = async () => {
@@ -555,12 +588,17 @@ export default function PathTracking() {
     });
 
     // Draw path history
-    if (pathHistory.length > 1) {
+    const validPathHistory = pathHistory.filter(pos => 
+      pos && typeof pos.x === 'number' && typeof pos.y === 'number' && 
+      !isNaN(pos.x) && !isNaN(pos.y)
+    );
+    
+    if (validPathHistory.length > 1) {
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = 2;
       ctx.beginPath();
 
-      pathHistory.forEach((pos, idx) => {
+      validPathHistory.forEach((pos, idx) => {
         const x = pos.x * scaleX;
         const y = pos.y * scaleY;
         if (idx === 0) {
@@ -573,7 +611,7 @@ export default function PathTracking() {
       ctx.stroke();
 
       // Draw path points
-      pathHistory.forEach((pos) => {
+      validPathHistory.forEach((pos) => {
         const x = pos.x * scaleX;
         const y = pos.y * scaleY;
         ctx.fillStyle = '#f97316';
@@ -584,7 +622,7 @@ export default function PathTracking() {
     }
 
     // Draw current position
-    if (currentPosition) {
+    if (currentPosition && typeof currentPosition.x === 'number' && typeof currentPosition.y === 'number') {
       const x = currentPosition.x * scaleX;
       const y = currentPosition.y * scaleY;
 
@@ -681,7 +719,19 @@ export default function PathTracking() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">Path Tracking & Maps</h1>
-            <p className="text-gray-600">Real-time forklift location and path history</p>
+            <p className="text-gray-600">
+              Real-time forklift location and path history
+              {isConnected && (
+                <span className="ml-2 text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
+                  ● Live Stream
+                </span>
+              )}
+              {!isConnected && autoRefresh && (
+                <span className="ml-2 text-xs px-2 py-1 bg-red-100 text-red-700 rounded-full">
+                  ● Connecting...
+                </span>
+              )}
+            </p>
           </div>
           <div className="flex gap-2">
             <Button
@@ -736,7 +786,15 @@ export default function PathTracking() {
             >
               {autoRefresh ? '⏸️ Stop' : '▶️ Resume'}
             </Button>
-            <Button variant="outline" onClick={fetchPositionData} title="Refresh positions and path">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                fetchGateways();
+                fetchPositionHistory();
+                toast.success('Refreshed gateway positions and history');
+              }} 
+              title="Refresh gateway positions and path history"
+            >
               🔄
             </Button>
           </div>
@@ -754,7 +812,7 @@ export default function PathTracking() {
           <Alert className="border-red-500 bg-red-50">
             <AlertTriangle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-800">
-              ⚠️ Only {gateways.length} gateway(s) detected. At least 2 gateways are required for position tracking (3+ recommended for optimal accuracy).
+              ⚠️ Only {gateways.length} active gateway(s) sending RSSI. At least 2 gateways are required for position tracking (3+ recommended for optimal accuracy).
             </AlertDescription>
           </Alert>
         )}
@@ -763,7 +821,7 @@ export default function PathTracking() {
           <Alert className="border-yellow-500 bg-yellow-50">
             <AlertTriangle className="h-4 w-4 text-yellow-600" />
             <AlertDescription className="text-yellow-800">
-              💡 {gateways.length} gateways active. Add {4 - gateways.length} more gateway(s) to enable weighted least squares positioning (±50% better accuracy with 4+ gateways).
+              💡 {gateways.length} active gateways sending RSSI. Add {4 - gateways.length} more gateway(s) to enable weighted least squares positioning (±50% better accuracy with 4+ gateways).
             </AlertDescription>
           </Alert>
         )}
@@ -772,7 +830,7 @@ export default function PathTracking() {
           <Alert className="border-green-500 bg-green-50">
             <AlertTriangle className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-800">
-              ✅ {gateways.length} gateways active! Weighted least squares positioning enabled for optimal accuracy (sub-meter precision).
+              ✅ {gateways.length} active gateways sending RSSI! Weighted least squares positioning enabled for optimal accuracy (sub-meter precision).
             </AlertDescription>
           </Alert>
         )}
@@ -818,20 +876,23 @@ export default function PathTracking() {
         </Card>
 
         {/* Current Position Info */}
-        {currentPosition && gateways.length >= 3 && (
+        {currentPosition && gateways.length >= 2 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Navigation className="w-5 h-5 text-green-600" />
-                Current Position
+                Calculated Position
                 {currentPosition.method && (
                   <span className="ml-auto text-xs font-normal px-2 py-1 bg-blue-100 text-blue-700 rounded">
-                    {currentPosition.method === 'weighted_least_squares' && `📊 ${currentPosition.gateway_count || 0} Gateways (Optimized)`}
-                    {currentPosition.method === 'trilateration' && `📐 3 Gateways (Standard)`}
-                    {currentPosition.method === 'bilateration' && `📍 2 Gateways (Limited)`}
+                    {currentPosition.method === 'weighted_least_squares' && `📊 ${currentPosition.gateway_count || 0} Gateways (WLS)`}
+                    {currentPosition.method === 'trilateration' && `🔺 ${currentPosition.gateway_count || 3} Gateways (Trilateration)`}
+                    {currentPosition.method === 'bilateration' && `📍 ${currentPosition.gateway_count || 2} Gateways (Bilateration)`}
                   </span>
                 )}
               </CardTitle>
+              <CardDescription>
+                Live forklift position using {currentPosition.gateway_count || gateways.length} active gateway{(currentPosition.gateway_count || gateways.length) > 1 ? 's' : ''}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-4 gap-4">
@@ -894,22 +955,38 @@ export default function PathTracking() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <MapPin className="w-5 h-5" />
-              Gateway Status ({gateways.length})
+              Configured Gateways ({gateways.length} Active)
             </CardTitle>
+            <CardDescription>
+              Active BLE gateways sending RSSI data for position calculation
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {gateways.length === 0 ? (
-              <p className="text-gray-500">No gateways configured. Add gateways in RSSI Monitor.</p>
+              <div className="text-center py-8 text-gray-500">
+                <MapPin className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p className="font-medium">No active gateways</p>
+                <p className="text-sm mt-1">Start scanning on mobile devices to add gateways</p>
+              </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {gateways.map((gateway) => (
                   <div
                     key={gateway.gateway_id}
-                    className="p-3 bg-blue-50 border border-blue-200 rounded-lg"
+                    className="p-3 bg-blue-50 border-2 border-blue-200 rounded-lg"
                   >
-                    <div className="font-semibold text-blue-900">{gateway.name}</div>
-                    <div className="text-xs text-blue-700 mt-1">
-                      Position: ({gateway.location.x.toFixed(1)}m, {gateway.location.y.toFixed(1)}m)
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="font-semibold text-blue-900">{gateway.name}</div>
+                      <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
+                        Active
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-gray-600 space-y-1">
+                      <div>📍 Position: ({gateway.location.x.toFixed(1)}m, {gateway.location.y.toFixed(1)}m, {gateway.location.z.toFixed(1)}m)</div>
+                      <div>🆔 ID: {gateway.gateway_id}</div>
+                      <div className="pt-1 border-t text-gray-500">
+                        Last seen: {new Date(gateway.last_seen).toLocaleTimeString('en-IN')}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -927,19 +1004,23 @@ export default function PathTracking() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2 max-h-60 overflow-y-auto">
-                {pathHistory.slice().reverse().map((pos, idx) => (
-                  <div
-                    key={idx}
-                    className="p-2 bg-gray-50 border border-gray-200 rounded text-sm"
-                  >
-                    <span className="text-gray-900">
-                      ({pos.x.toFixed(1)}m, {pos.y.toFixed(1)}m, {(pos.z || 0).toFixed(1)}m)
-                    </span>
-                    <span className="text-gray-500 ml-2">
-                      {convertToIST(pos.timestamp)}
-                    </span>
-                  </div>
-                ))}
+                {pathHistory
+                  .filter(pos => pos && typeof pos.x === 'number' && typeof pos.y === 'number')
+                  .slice()
+                  .reverse()
+                  .map((pos, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2 bg-gray-50 border border-gray-200 rounded text-sm"
+                    >
+                      <span className="text-gray-900">
+                        ({pos.x.toFixed(1)}m, {pos.y.toFixed(1)}m, {(pos.z || 0).toFixed(1)}m)
+                      </span>
+                      <span className="text-gray-500 ml-2">
+                        {convertToIST(pos.timestamp)}
+                      </span>
+                    </div>
+                  ))}
               </div>
             </CardContent>
           </Card>

@@ -35,6 +35,7 @@ def create_app(config_class=Config):
     from app.routes.warehouse_routes import warehouse_bp
     from app.routes.camera_routes import camera_bp
     from app.routes.alerts_routes import alerts_bp
+    from app.routes.streaming_routes import streaming_bp
     
     app.register_blueprint(sensor_bp, url_prefix='/api/sensors')
     app.register_blueprint(forklift_bp, url_prefix='/api/forklift')
@@ -45,6 +46,11 @@ def create_app(config_class=Config):
     app.register_blueprint(warehouse_bp, url_prefix='/api/warehouse')
     app.register_blueprint(camera_bp, url_prefix='/api/camera')
     app.register_blueprint(alerts_bp, url_prefix='/api/alerts')
+    app.register_blueprint(streaming_bp, url_prefix='/api/stream')
+    
+    # Start positioning engine
+    from app.services.positioning_engine import start_positioning_engine
+    start_positioning_engine()
     
     # Initialize MQTT service
     from app.services.mqtt_service import mqtt_service
