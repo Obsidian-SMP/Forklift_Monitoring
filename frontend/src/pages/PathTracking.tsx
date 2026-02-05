@@ -75,6 +75,7 @@ export default function PathTracking() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [gateways, setGateways] = useState<Gateway[]>([]);
   const [currentPosition, setCurrentPosition] = useState<Position | null>(null);
+  const [rawPositions, setRawPositions] = useState<Position[]>([]); // Last 3 raw positions for averaging
   const [pathHistory, setPathHistory] = useState<Position[]>([]);
   const [layoutConfigured, setLayoutConfigured] = useState(true);
   const [mapWidth, setMapWidth] = useState(10);
@@ -195,8 +196,8 @@ export default function PathTracking() {
         try {
           const data = JSON.parse(event.data);
           
-          // Update current position with all fields from backend
-          const position: Position = {
+          // Raw position from backend
+          const rawPosition: Position = {
             x: data.x,
             y: data.y,
             z: data.z || 0,
@@ -209,16 +210,37 @@ export default function PathTracking() {
             speed: data.speed,
           };
           
-          setCurrentPosition(position);
-          
-          // Add to path history (keep last 200 positions)
-          setPathHistory(prev => {
-            const updated = [...prev, position];
-            return updated.slice(-200); // Keep only last 200 positions
+          // Update raw positions buffer (keep last 3)
+          setRawPositions(prev => {
+            const updated = [...prev, rawPosition];
+            return updated.slice(-3);
           });
           
-          // Check zone entry
-          checkZoneEntry(position);
+          // Calculate averaged position from last 3 positions
+          setRawPositions(prevRaw => {
+            const recentPositions = prevRaw.length > 0 ? prevRaw : [rawPosition];
+            const avgX = recentPositions.reduce((sum, p) => sum + p.x, 0) / recentPositions.length;
+            const avgY = recentPositions.reduce((sum, p) => sum + p.y, 0) / recentPositions.length;
+            
+            const smoothedPosition: Position = {
+              ...rawPosition,
+              x: avgX,
+              y: avgY,
+            };
+            
+            setCurrentPosition(smoothedPosition);
+            
+            // Add smoothed position to path history (keep last 200 positions)
+            setPathHistory(prev => {
+              const updated = [...prev, smoothedPosition];
+              return updated.slice(-200);
+            });
+            
+            // Check zone entry with smoothed position
+            checkZoneEntry(smoothedPosition);
+            
+            return recentPositions;
+          });
           
         } catch (err) {
           console.error('Error parsing SSE data:', err);
@@ -587,14 +609,15 @@ export default function PathTracking() {
       ctx.fillText(gateway.name, x, y - 15);
     });
 
-    // Draw path history
+    // Draw path history with orange line
     const validPathHistory = pathHistory.filter(pos => 
       pos && typeof pos.x === 'number' && typeof pos.y === 'number' && 
       !isNaN(pos.x) && !isNaN(pos.y)
     );
     
     if (validPathHistory.length > 1) {
-      ctx.strokeStyle = '#ef4444';
+      // Draw orange connecting line
+      ctx.strokeStyle = '#f97316';
       ctx.lineWidth = 2;
       ctx.beginPath();
 
@@ -898,30 +921,30 @@ export default function PathTracking() {
               <div className="grid grid-cols-4 gap-4">
                 <div>
                   <div className="text-2xl font-bold text-blue-600">
-                    {currentPosition.x.toFixed(2)}m
+                    {currentPosition?.x?.toFixed(2) ?? '0.00'}m
                   </div>
                   <div className="text-sm text-gray-600">X Coordinate</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold text-green-600">
-                    {currentPosition.y.toFixed(2)}m
+                    {currentPosition?.y?.toFixed(2) ?? '0.00'}m
                   </div>
                   <div className="text-sm text-gray-600">Y Coordinate</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold text-purple-600">
-                    {(currentPosition.z || 0).toFixed(2)}m
+                    {(currentPosition?.z || 0).toFixed(2)}m
                   </div>
                   <div className="text-sm text-gray-600">Z Height</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold text-orange-600">
-                    ±{(currentPosition.accuracy || 0).toFixed(2)}m
+                    ±{(currentPosition?.accuracy || 0).toFixed(2)}m
                   </div>
                   <div className="text-sm text-gray-600">Accuracy</div>
                 </div>
               </div>
-              {currentPosition.speed !== undefined && currentPosition.speed > 0.01 && (
+              {currentPosition?.speed !== undefined && currentPosition.speed > 0.01 && (
                 <div className="mt-4 pt-4 border-t grid grid-cols-3 gap-4">
                   <div>
                     <div className="text-lg font-semibold text-teal-600">

@@ -31,10 +31,24 @@ class PositioningEngine:
         """
         self.update_interval = update_interval
         
-        # Initialize components
-        self.rssi_processor = RSSIProcessor(buffer_size=10, smoothing_alpha=0.1)
-        self.trilateration = WLSTrilateration(tx_power=tx_power, n_los=2.0, n_nlos=3.5)
-        self.ekf = ExtendedKalmanFilter(dt=update_interval)
+        # Load config values
+        from app.gateway_config import RSSI_CONFIG, TRILATERATION_CONFIG
+        
+        # Initialize components with config values
+        self.rssi_processor = RSSIProcessor(
+            buffer_size=RSSI_CONFIG.get('BUFFER_SIZE', 10),
+            smoothing_alpha=RSSI_CONFIG.get('SMOOTHING_ALPHA', 0.25)
+        )
+        self.trilateration = WLSTrilateration(
+            tx_power=tx_power,
+            n_los=RSSI_CONFIG.get('PATH_LOSS_N_LOS', 2.0),
+            n_nlos=RSSI_CONFIG.get('PATH_LOSS_N_NLOS', 3.5)
+        )
+        self.ekf = ExtendedKalmanFilter(
+            dt=update_interval,
+            process_noise=TRILATERATION_CONFIG.get('PROCESS_NOISE', 0.3),
+            measurement_noise=TRILATERATION_CONFIG.get('MEASUREMENT_NOISE', 9.0)
+        )
         
         # Storage for latest position
         self.latest_position = None
@@ -256,6 +270,23 @@ class PositioningEngine:
                 'rssi_values': {gw_id: rssi for gw_id, rssi in zip(gateway_ids, rssi_values)}
             }
             
+            # Save to database for historical tracking
+            try:
+                from app.models import ForkliftPositionTrilateration
+                ForkliftPositionTrilateration.create(
+                    forklift_id=position['forklift_id'],
+                    calculated_x=position['x'],
+                    calculated_y=position['y'],
+                    calculated_z=position.get('z', 0.0),
+                    accuracy_meters=position['accuracy'],
+                    gateway_count=position['gateway_count'],
+                    method=position['method'],
+                    confidence_score=position['confidence']
+                )
+            except Exception as db_err:
+                # Don't fail position calculation if DB write fails
+                print(f"⚠️ Failed to save position to DB: {db_err}")
+            
             return position
             
         except Exception as e:
@@ -273,7 +304,7 @@ def get_positioning_engine() -> PositioningEngine:
     """Get global positioning engine instance"""
     global _positioning_engine
     if _positioning_engine is None:
-        _positioning_engine = PositioningEngine(update_interval=0.5, tx_power=-55)
+        _positioning_engine = PositioningEngine(update_interval=0.5, tx_power=-58.0)
     return _positioning_engine
 
 
