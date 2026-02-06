@@ -26,6 +26,9 @@ RPi.GPIO==0.7.0
 # Environment Variables
 python-dotenv==1.0.0
 
+# Notifications (SMS, WhatsApp, Email)
+twilio==9.0.0
+
 # Async Support
 eventlet==0.35.2
 

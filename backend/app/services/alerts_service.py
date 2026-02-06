@@ -304,44 +304,5 @@ class AlertsService:
         return all_alerts
 
 
-class NotificationService:
-    """Service for sending notifications"""
-    
-    NOTIFICATION_CHANNELS = ['email', 'sms', 'in_app']
-    
-    @staticmethod
-    def send_notification(alert, channels=None, recipients=None):
-        """Send notification for an alert"""
-        if channels is None:
-            channels = ['in_app']
-        if recipients is None:
-            recipients = []
-        
-        notifications = []
-        
-        for channel in channels:
-            if channel == 'email':
-                notifications.append({
-                    'channel': 'email',
-                    'recipients': recipients,
-                    'subject': f"[{alert['severity'].upper()}] {alert['type'].replace('_', ' ').title()}",
-                    'body': alert['message'],
-                    'timestamp': datetime.utcnow().isoformat()
-                })
-            elif channel == 'sms':
-                notifications.append({
-                    'channel': 'sms',
-                    'recipients': recipients,
-                    'message': f"[{alert['severity']}] {alert['message']}",
-                    'timestamp': datetime.utcnow().isoformat()
-                })
-            elif channel == 'in_app':
-                notifications.append({
-                    'channel': 'in_app',
-                    'message': alert['message'],
-                    'type': alert['type'],
-                    'severity': alert['severity'],
-                    'timestamp': datetime.utcnow().isoformat()
-                })
-        
-        return notifications
+# Import NotificationService from separate module
+from app.services.notification_service import NotificationService

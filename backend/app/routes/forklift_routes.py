@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from datetime import datetime, timedelta
 import os
 
-from app.models import Forklift, ForkliftLocation, VibrationData
+from app.models import Forklift, ForkliftLocation
 
 forklift_bp = Blueprint('forklift', __name__)
 
@@ -67,42 +67,6 @@ def get_location_track(forklift_id):
         return jsonify({'error': str(e)}), 500
 
 
-@forklift_bp.route('/<forklift_id>/vibration/current', methods=['GET'])
-def get_current_vibration(forklift_id):
-    """Get latest vibration data"""
-    try:
-        vibration = VibrationData.select().where(
-            VibrationData.forklift_id == forklift_id
-        ).order_by(VibrationData.timestamp.desc()).first()
-        if vibration:
-            return jsonify(vibration.to_dict()), 200
-        return jsonify({'message': 'No vibration data available'}), 404
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@forklift_bp.route('/<forklift_id>/vibration/anomalies', methods=['GET'])
-def get_vibration_anomalies(forklift_id):
-    """Get vibration anomalies"""
-    try:
-        hours = int(request.args.get('hours', 24))
-        start_time = datetime.utcnow() - timedelta(hours=hours)
-        
-        anomalies = list(VibrationData.select().where(
-            (VibrationData.forklift_id == forklift_id) &
-            (VibrationData.is_anomaly == True) &
-            (VibrationData.timestamp >= start_time)
-        ).order_by(VibrationData.timestamp.desc()))
-        
-        return jsonify({
-            'forklift_id': forklift_id,
-            'count': len(anomalies),
-            'anomalies': [a.to_dict() for a in anomalies]
-        }), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 @forklift_bp.route('/<forklift_id>/status', methods=['PUT'])
 def update_forklift_status(forklift_id):
     """Update forklift status (REST endpoint)"""
@@ -150,69 +114,6 @@ def add_location(forklift_id):
         )
         
         return jsonify(location.to_dict()), 201
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-
-@forklift_bp.route('/<forklift_id>/vibration', methods=['POST'])
-def add_vibration(forklift_id):
-    """Add vibration data (REST endpoint for accelerometer)"""
-    try:
-        data = request.get_json()
-        
-        magnitude = (data['accel_x']**2 + data['accel_y']**2 + data['accel_z']**2) ** 0.5
-        
-        vibration = VibrationData.create(
-            forklift_id=forklift_id,
-            accel_x=data['accel_x'],
-            accel_y=data['accel_y'],
-            accel_z=data['accel_z'],
-            magnitude=magnitude,
-            is_anomaly=magnitude > 5.0  # Threshold
-        )
-        
-        return jsonify(vibration.to_dict()), 201
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
-
-@forklift_bp.route('/<forklift_id>/data', methods=['POST'])
-def add_sensor_data(forklift_id):
-    """Add combined sensor data from Arduino (vibration + battery) via HTTP"""
-    try:
-        data = request.get_json()
-        
-        # Get or create forklift
-        forklift = Forklift.get_or_none(Forklift.forklift_id == forklift_id)
-        if not forklift:
-            forklift = Forklift.create(forklift_id=forklift_id)
-        
-        # Update battery level and timestamp
-        forklift.battery_level = data.get('battery_level', 100)
-        forklift.last_seen = datetime.utcnow()
-        forklift.save()
-        
-        # Store vibration data
-        accel_x = data.get('vibration_x', 0)
-        accel_y = data.get('vibration_y', 0)
-        accel_z = data.get('vibration_z', 0)
-        magnitude = (accel_x**2 + accel_y**2 + accel_z**2) ** 0.5
-        
-        vibration = VibrationData.create(
-            forklift_id=forklift_id,
-            accel_x=accel_x,
-            accel_y=accel_y,
-            accel_z=accel_z,
-            magnitude=magnitude,
-            is_anomaly=magnitude > 5.0  # Anomaly threshold
-        )
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Sensor data received',
-            'forklift': forklift.to_dict(),
-            'vibration': vibration.to_dict()
-        }), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 

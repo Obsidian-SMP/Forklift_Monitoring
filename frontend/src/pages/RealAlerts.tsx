@@ -128,16 +128,70 @@ export default function RealAlerts() {
     }
   };
 
+  const handleDeleteRecipient = async (type: 'email' | 'sms', value: string) => {
+    if (!alertSettings) return;
+
+    try {
+      const updatedRecipients = {
+        ...alertSettings.notification_recipients,
+        [type]: alertSettings.notification_recipients?.[type]?.filter((item: string) => item !== value) || [],
+      };
+
+      const response = await fetch(`${API_BASE}/alerts/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notification_recipients: updatedRecipients }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setAlertSettings(result.settings);
+        toast({
+          title: '✅ Recipient Removed',
+          description: `${type === 'email' ? 'Email' : 'Phone number'} has been removed from notifications.`,
+        });
+      }
+    } catch (err) {
+      console.error('Error removing recipient:', err);
+      toast({
+        title: 'Error',
+        description: 'Failed to remove recipient',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleAddRecipient = async () => {
     if (!alertSettings) return;
 
     const isEmailEnabled = alertSettings.notification_channels?.email;
-    const isPhoneEnabled = alertSettings.notification_channels?.sms || alertSettings.notification_channels?.whatsapp;
+    const isPhoneEnabled = alertSettings.notification_channels?.whatsapp;
 
-    if ((isEmailEnabled && !newEmail) || (isPhoneEnabled && !newPhone)) {
+    // Check if at least one field is filled
+    if (!newEmail && !newPhone) {
       toast({
         title: 'Invalid Input',
-        description: 'Please enter required contact information.',
+        description: 'Please enter at least an email or phone number.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validate email if provided and email channel is enabled
+    if (newEmail && !isEmailEnabled) {
+      toast({
+        title: 'Invalid Input',
+        description: 'Email channel is not enabled. Please enable email notifications first.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validate phone if provided and phone channel is enabled
+    if (newPhone && !isPhoneEnabled) {
+      toast({
+        title: 'Invalid Input',
+        description: 'WhatsApp channel is not enabled. Please enable WhatsApp notifications first.',
         variant: 'destructive',
       });
       return;
@@ -160,9 +214,18 @@ export default function RealAlerts() {
         setAlertSettings(result.settings);
         setNewEmail('');
         setNewPhone('');
+        
+        // Show success message with test notification results
+        const testResults = result.test_notifications;
+        let description = 'Notification recipients have been saved successfully.';
+        
+        if (testResults && testResults.total_count > 0) {
+          description += ` Test notifications sent: ${testResults.success_count}/${testResults.total_count} delivered.`;
+        }
+        
         toast({
-          title: 'Recipients Updated',
-          description: 'Notification recipients have been saved successfully.',
+          title: '✅ Recipients Updated',
+          description,
         });
       }
     } catch (err) {
@@ -326,7 +389,7 @@ export default function RealAlerts() {
               <div className="space-y-4">
                 <h3 className="font-semibold text-foreground">Notification Channels</h3>
                 <div className="flex gap-4 flex-wrap">
-                  {['email', 'sms', 'whatsapp'].map((channel) => (
+                  {['email', 'whatsapp'].map((channel) => (
                     <label key={channel} className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -346,7 +409,7 @@ export default function RealAlerts() {
                 </div>
                 
                 {/* Recipient Configuration */}
-                {(alertSettings.notification_channels?.email || alertSettings.notification_channels?.sms || alertSettings.notification_channels?.whatsapp) && (
+                {(alertSettings.notification_channels?.email || alertSettings.notification_channels?.whatsapp) && (
                   <div className="mt-4 p-4 bg-muted/50 rounded-lg border border-border space-y-3">
                     <h4 className="font-medium text-sm text-foreground">Add Recipients</h4>
                     
@@ -363,19 +426,28 @@ export default function RealAlerts() {
                         {alertSettings.notification_recipients?.email && alertSettings.notification_recipients.email.length > 0 && (
                           <div className="flex flex-wrap gap-2 mt-2">
                             {alertSettings.notification_recipients.email.map((email, idx) => (
-                              <Badge key={idx} variant="secondary" className="text-xs">{email}</Badge>
+                              <Badge key={idx} variant="secondary" className="text-xs flex items-center gap-1">
+                                {email}
+                                <button
+                                  onClick={() => handleDeleteRecipient('email', email)}
+                                  className="ml-1 hover:text-red-500 transition-colors"
+                                  title="Remove email"
+                                >
+                                  ✕
+                                </button>
+                              </Badge>
                             ))}
                           </div>
                         )}
                       </div>
                     )}
                     
-                    {(alertSettings.notification_channels?.sms || alertSettings.notification_channels?.whatsapp) && (
+                    {alertSettings.notification_channels?.whatsapp && (
                       <div className="space-y-2">
-                        <label className="text-xs font-medium text-muted-foreground">Phone Number</label>
+                        <label className="text-xs font-medium text-muted-foreground">Phone Number (WhatsApp)</label>
                         <Input
                           type="tel"
-                          placeholder="Enter phone number"
+                          placeholder="Enter phone number (e.g., +919916570764)"
                           value={newPhone}
                           onChange={(e) => setNewPhone(e.target.value)}
                           className="bg-background"
@@ -383,7 +455,16 @@ export default function RealAlerts() {
                         {alertSettings.notification_recipients?.sms && alertSettings.notification_recipients.sms.length > 0 && (
                           <div className="flex flex-wrap gap-2 mt-2">
                             {alertSettings.notification_recipients.sms.map((phone, idx) => (
-                              <Badge key={idx} variant="secondary" className="text-xs">{phone}</Badge>
+                              <Badge key={idx} variant="secondary" className="text-xs flex items-center gap-1">
+                                {phone}
+                                <button
+                                  onClick={() => handleDeleteRecipient('sms', phone)}
+                                  className="ml-1 hover:text-red-500 transition-colors"
+                                  title="Remove phone number"
+                                >
+                                  ✕
+                                </button>
+                              </Badge>
                             ))}
                           </div>
                         )}

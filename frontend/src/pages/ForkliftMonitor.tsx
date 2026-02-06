@@ -397,6 +397,7 @@ export default function ForkliftMonitor() {
             </CardContent>
           </Card>
         )}
+
       </div>
     </DashboardLayout>
   );

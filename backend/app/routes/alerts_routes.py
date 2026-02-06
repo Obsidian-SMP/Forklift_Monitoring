@@ -6,6 +6,7 @@ Real-time alerts from warehouse data
 from flask import Blueprint, jsonify, request
 from datetime import datetime, timedelta
 from app.services.alerts_service import AlertsService, NotificationService
+from app.services.notification_service import notification_service
 from app.models import Inventory, DetectedObject, WarehouseEntry, InventoryTransaction
 
 alerts_bp = Blueprint('alerts', __name__)
@@ -30,12 +31,75 @@ ALERT_SETTINGS = {
         'in_app': True,
         'email': False,
         'sms': False,
+        'whatsapp': False,
     },
     'notification_recipients': {
         'email': [],
         'sms': []
     }
 }
+
+# Cache for tracking which alerts have been notified
+NOTIFIED_ALERTS = set()
+
+def process_alert_notifications(alerts):
+    """
+    Process alerts and send notifications for high-priority ones
+    
+    Args:
+        alerts: List of alert dictionaries
+        
+    Returns:
+        Dict with notification results
+    """
+    results = []
+    
+    # Alert types that should trigger automatic notifications
+    AUTO_NOTIFY_TYPES = ['low_inventory', 'out_of_stock', 'inventory_detected']
+    
+    for alert in alerts:
+        alert_id = alert.get('id')
+        alert_type = alert.get('type')
+        severity = alert.get('severity')
+        
+        # Skip if already notified or if type shouldn't auto-notify
+        if alert_id in NOTIFIED_ALERTS:
+            continue
+            
+        if alert_type not in AUTO_NOTIFY_TYPES:
+            continue
+        
+        # Check if any notification channels are enabled
+        channels_enabled = any(ALERT_SETTINGS['notification_channels'].values())
+        if not channels_enabled:
+            continue
+        
+        # Send notification
+        try:
+            result = notification_service.send_alert_notification(
+                alert,
+                ALERT_SETTINGS
+            )
+            
+            if result.get('all_success'):
+                NOTIFIED_ALERTS.add(alert_id)
+                results.append({
+                    'alert_id': alert_id,
+                    'success': True,
+                    'result': result
+                })
+        except Exception as e:
+            results.append({
+                'alert_id': alert_id,
+                'success': False,
+                'error': str(e)
+            })
+    
+    return {
+        'processed': len(results),
+        'results': results
+    }
+
 
 
 @alerts_bp.route('/', methods=['GET'])
@@ -66,10 +130,21 @@ def get_alerts():
         # Filter by enabled alerts
         alerts = [a for a in alerts if ALERT_SETTINGS['enabled_alerts'].get(a.get('type', ''), True)]
         
+        # Process alerts for automatic notifications
+        notification_result = None
+        if alerts:
+            try:
+                notification_result = process_alert_notifications(alerts)
+                if notification_result['processed'] > 0:
+                    print(f"✉️ Sent {notification_result['processed']} automatic notifications")
+            except Exception as e:
+                print(f"Error processing notifications: {e}")
+        
         return jsonify({
             'count': len(alerts),
             'alerts': alerts,
-            'settings': ALERT_SETTINGS
+            'settings': ALERT_SETTINGS,
+            'notifications_sent': notification_result['processed'] if notification_result else 0
         }), 200
     except Exception as e:
         print(f"Error in get_alerts: {str(e)}")
@@ -169,6 +244,10 @@ def update_alert_settings():
         global ALERT_SETTINGS
         data = request.get_json()
         
+        # Track if recipients were updated
+        recipients_updated = False
+        old_recipients = ALERT_SETTINGS['notification_recipients'].copy()
+        
         # Update allowed fields
         if 'low_stock_threshold' in data:
             ALERT_SETTINGS['low_stock_threshold'] = data['low_stock_threshold']
@@ -184,13 +263,88 @@ def update_alert_settings():
         
         if 'notification_recipients' in data:
             ALERT_SETTINGS['notification_recipients'].update(data['notification_recipients'])
+            recipients_updated = True
         
-        return jsonify({
+        response_data = {
             'message': 'Settings updated',
             'settings': ALERT_SETTINGS
-        }), 200
+        }
+        
+        # Send test notifications when recipients are updated
+        if recipients_updated:
+            test_results = send_test_notifications_for_new_recipients(
+                old_recipients,
+                ALERT_SETTINGS['notification_recipients']
+            )
+            response_data['test_notifications'] = test_results
+        
+        return jsonify(response_data), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+
+def send_test_notifications_for_new_recipients(old_recipients: dict, new_recipients: dict) -> dict:
+    """
+    Send test notifications to newly added recipients
+    
+    Args:
+        old_recipients: Previous recipient list
+        new_recipients: Updated recipient list
+        
+    Returns:
+        Dict with test notification results
+    """
+    results = {}
+    
+    # Check for new emails
+    old_emails = set(old_recipients.get('email', []))
+    new_emails = set(new_recipients.get('email', []))
+    added_emails = new_emails - old_emails
+    
+    # Check for new phone numbers
+    old_phones = set(old_recipients.get('sms', []))
+    new_phones = set(new_recipients.get('sms', []))
+    added_phones = new_phones - old_phones
+    
+    # Send test email to new email addresses
+    for email in added_emails:
+        subject = "✅ Warehouse Alert System - Email Configured"
+        body = (
+            "Hello!\n\n"
+            "This is a confirmation that your email address has been successfully "
+            "added to the warehouse alert notification system.\n\n"
+            "You will now receive alert notifications for:\n"
+            "- Low inventory alerts\n"
+            "- Out of stock alerts\n"
+            "- Inventory detection alerts\n\n"
+            "If you did not request this, please contact your system administrator.\n\n"
+            "Best regards,\n"
+            "Warehouse IoT System"
+        )
+        result = notification_service.send_email(email, subject, body)
+        results[f'email_test_{email}'] = result
+    
+    # Send test WhatsApp to new phone numbers
+    for phone in added_phones:
+        message = (
+            "✅ Warehouse Alert System\n\n"
+            "Your phone number has been successfully added to receive alert notifications.\n\n"
+            "You will receive alerts for:\n"
+            "• Low inventory\n"
+            "• Out of stock\n"
+            "• Inventory detection\n\n"
+            "This is a test message to confirm delivery."
+        )
+        result = notification_service.send_whatsapp(phone, message)
+        results[f'whatsapp_test_{phone}'] = result
+    
+    return {
+        'emails_tested': list(added_emails),
+        'phones_tested': list(added_phones),
+        'results': results,
+        'success_count': sum(1 for r in results.values() if r.get('success', False)),
+        'total_count': len(results)
+    }
 
 
 @alerts_bp.route('/settings/alert-type/<alert_type>', methods=['PUT'])
@@ -304,3 +458,160 @@ def get_inventory_analytics():
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ==================== NOTIFICATION TEST ENDPOINTS ====================
+
+@alerts_bp.route('/test/sms', methods=['POST'])
+def test_sms():
+    """Test SMS notification"""
+    try:
+        data = request.get_json() or {}
+        to = data.get('to', notification_service.default_phone_to)
+        message = data.get('message', 'Test SMS from Warehouse IoT System')
+        
+        result = notification_service.send_sms(to, message)
+        
+        return jsonify({
+            'success': result.get('success', False),
+            'result': result,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200 if result.get('success') else 500
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+@alerts_bp.route('/test/whatsapp', methods=['POST'])
+def test_whatsapp():
+    """Test WhatsApp notification"""
+    try:
+        data = request.get_json() or {}
+        to = data.get('to', notification_service.default_whatsapp_to)
+        message = data.get('message', '🚨 Test WhatsApp message from Warehouse IoT System\n\nThis is a test notification.')
+        
+        result = notification_service.send_whatsapp(to, message)
+        
+        return jsonify({
+            'success': result.get('success', False),
+            'result': result,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200 if result.get('success') else 500
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+@alerts_bp.route('/test/email', methods=['POST'])
+def test_email():
+    """Test Email notification"""
+    try:
+        data = request.get_json() or {}
+        to = data.get('to', notification_service.smtp_email)
+        subject = data.get('subject', 'Test Email from Warehouse IoT System')
+        body = data.get('body', 'This is a test email notification from the Warehouse IoT System.\n\nIf you received this, email notifications are working correctly.')
+        
+        result = notification_service.send_email(to, subject, body)
+        
+        return jsonify({
+            'success': result.get('success', False),
+            'result': result,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200 if result.get('success') else 500
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+@alerts_bp.route('/test/notification', methods=['POST'])
+def test_full_notification():
+    """Test full alert notification (simulates real alert)"""
+    try:
+        data = request.get_json() or {}
+        
+        # Create a test alert
+        test_alert = {
+            'id': f"test-alert-{datetime.utcnow().timestamp()}",
+            'type': data.get('type', 'low_inventory'),
+            'severity': data.get('severity', 'medium'),
+            'message': data.get('message', 'Test alert: Low inventory detected for Box-Red items'),
+            'source': 'test',
+            'timestamp': datetime.utcnow().isoformat(),
+            'metadata': {'test': True}
+        }
+        
+        # Get channels to test (or use all enabled)
+        force_channels = data.get('channels')  # e.g., ['email', 'whatsapp']
+        
+        # Send notification
+        result = notification_service.send_alert_notification(
+            test_alert, 
+            ALERT_SETTINGS,
+            force_channels
+        )
+        
+        return jsonify({
+            'success': result.get('all_success', False),
+            'alert': test_alert,
+            'notification_result': result,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+@alerts_bp.route('/send-notification', methods=['POST'])
+def send_alert_notification():
+    """Send notification for a specific alert"""
+    try:
+        data = request.get_json() or {}
+        
+        if not data.get('alert'):
+            return jsonify({'error': 'Alert data required', 'success': False}), 400
+        
+        alert_data = data['alert']
+        force_channels = data.get('channels')  # Optional: force specific channels
+        
+        # Send notification
+        result = notification_service.send_alert_notification(
+            alert_data, 
+            ALERT_SETTINGS,
+            force_channels
+        )
+        
+        return jsonify({
+            'success': result.get('all_success', False),
+            'result': result,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+@alerts_bp.route('/process-notifications', methods=['POST'])
+def process_notifications():
+    """Process current alerts and send notifications for high-priority ones"""
+    try:
+        # Get current alerts
+        filters = {
+            'limit': 100,
+            'low_stock_threshold': ALERT_SETTINGS['low_stock_threshold']
+        }
+        
+        alerts = AlertsService.get_all_alerts(filters)
+        alerts = [a for a in alerts if ALERT_SETTINGS['enabled_alerts'].get(a.get('type', ''), True)]
+        
+        # Process and send notifications
+        result = process_alert_notifications(alerts)
+        
+        return jsonify({
+            'success': True,
+            'total_alerts': len(alerts),
+            'notification_result': result,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500

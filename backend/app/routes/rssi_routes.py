@@ -108,21 +108,32 @@ def receive_rssi():
                     traceback.print_exc()
                     return jsonify({'error': f'Failed to store RSSI: {str(db_error)}'}), 500
         
-        # Update gateway last_seen timestamp
+        # Update gateway last_seen timestamp (don't create duplicates if gateway already exists)
         try:
-            gateway, _ = WiFiGateway.get_or_create(
-                gateway_id=gateway_id,
-                defaults={
-                    'name': f'Gateway {gateway_id}',
-                    'location_x': 0.0,
-                    'location_y': 0.0,
-                    'location_z': 1.5,
-                    'is_active': 'true'
-                }
-            )
-            gateway.last_seen = datetime.utcnow()
-            gateway.is_active = 'true'
-            gateway.save()
+            # Check if gateway already exists by gateway_id (case-insensitive)
+            gateway = WiFiGateway.select().where(
+                WiFiGateway.gateway_id.collate('NOCASE') == gateway_id.strip()
+            ).first()
+            
+            if gateway:
+                # Gateway exists - only update last_seen and active status (DO NOT change position)
+                gateway.last_seen = datetime.utcnow()
+                gateway.is_active = 'true'
+                gateway.save()
+                print(f"📍 Updated existing gateway: {gateway.gateway_id} (last_seen updated)")
+            else:
+                # Gateway doesn't exist - create with default position (0,0)
+                # This should only happen when Android app connects for the first time
+                gateway = WiFiGateway.create(
+                    gateway_id=gateway_id.strip(),
+                    name=f'Gateway {gateway_id}',
+                    location_x=0.0,
+                    location_y=0.0,
+                    location_z=1.5,
+                    is_active='true',
+                    last_seen=datetime.utcnow()
+                )
+                print(f"📍 New gateway auto-created: {gateway_id} at (0, 0) - Please set position via RSSI Monitor page")
         except Exception as gw_error:
             print(f"⚠️ Gateway update failed (non-critical): {gw_error}")
         
@@ -452,43 +463,66 @@ def add_or_update_gateway():
             return jsonify({'error': 'Coordinates must be numeric values'}), 400
         
         # Use name as gateway_id if not provided
-        gateway_id = data.get('gateway_id', name)
+        gateway_id = data.get('gateway_id', name).strip()
+        name = name.strip()
         
-        # Check if gateway with this name already exists
+        # Check if gateway with this gateway_id OR name already exists (case-insensitive to prevent duplicates)
+        existing = None
         try:
-            existing = WiFiGateway.get(WiFiGateway.name == name)
-            # Update existing gateway
-            existing.gateway_id = gateway_id
+            # First check by gateway_id (case-insensitive)
+            existing = WiFiGateway.select().where(
+                WiFiGateway.gateway_id.collate('NOCASE') == gateway_id
+            ).first()
+        except Exception:
+            pass
+        
+        if not existing:
+            try:
+                # If not found by gateway_id, check by name (case-insensitive)
+                existing = WiFiGateway.select().where(
+                    WiFiGateway.name.collate('NOCASE') == name
+                ).first()
+            except Exception:
+                pass
+        
+        if existing:
+            # Update existing gateway (found by either gateway_id or name)
+            # Keep the original gateway_id casing from database, just update position
+            existing.name = name  # Update name to match user input
             existing.location_x = location_x
             existing.location_y = location_y
             existing.location_z = location_z
             existing.is_active = True
+            existing.last_seen = datetime.utcnow()
             existing.save()
+            
+            print(f"✅ Updated gateway '{existing.gateway_id}' → position: ({location_x}, {location_y}, {location_z})")
             
             return jsonify({
                 'status': 'updated',
                 'message': f'Gateway "{name}" position updated',
                 'gateway': existing.to_dict()
             }), 200
-            
-        except WiFiGateway.DoesNotExist:
-            # Create new gateway
-            new_gateway = WiFiGateway.create(
-                gateway_id=gateway_id,
-                name=name,
-                location_x=location_x,
-                location_y=location_y,
-                location_z=location_z,
-                is_active=True,
-                last_seen=datetime.utcnow()
-            )
-            
-            return jsonify({
-                'status': 'created',
-                'message': f'Gateway "{name}" created successfully',
-                'gateway': new_gateway.to_dict()
-            }), 201
-            
+        
+        # Create new gateway (not found by gateway_id or name)
+        new_gateway = WiFiGateway.create(
+            gateway_id=gateway_id,
+            name=name,
+            location_x=location_x,
+            location_y=location_y,
+            location_z=location_z,
+            is_active=True,
+            last_seen=datetime.utcnow()
+        )
+        
+        print(f"✅ Created new gateway '{gateway_id}' → position: ({location_x}, {location_y}, {location_z})")
+        
+        return jsonify({
+            'status': 'created',
+            'message': f'Gateway "{name}" created successfully',
+            'gateway': new_gateway.to_dict()
+        }), 201
+        
     except Exception as e:
         import traceback
         print(f"❌ Error adding/updating gateway: {e}")
