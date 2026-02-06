@@ -22,24 +22,18 @@ import { Button } from '@/components/ui/button';
 
 type TimeRange = '1h' | '24h' | '7d';
 
-const formatTimeByRange = (timestamp: string, range: TimeRange, startTime?: number) => {
-  // Ensure timestamp is treated as UTC by adding 'Z' if not present
-  const utcTimestamp = timestamp.endsWith('Z') ? timestamp : timestamp + 'Z';
-  const date = new Date(utcTimestamp);
-  
+const formatTimeByRange = (timestamp: string, range: TimeRange) => {
+  const date = new Date(timestamp);
   if (range === '1h') {
-    // Show minutes for 1-hour range
-    if (startTime) {
-      const minutes = Math.floor((startTime - date.getTime()) / 60000);
-      return `${minutes}m ago`;
-    }
-    return date.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
+    // Show time with seconds for 1-hour range (IST)
+    return date.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   }
   if (range === '24h') {
+    // Show time for 24-hour range (IST)
     return date.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
   }
-  // For 7d range, show date
-  return date.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric' });
+  // Show date for 7-day range (IST)
+  return date.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric' });
 };
 
 // Thresholds
@@ -53,7 +47,7 @@ const HUMIDITY_WARNING_LOW = 30;
 const HUMIDITY_DANGER_LOW = 20;
 
 export default function WarehouseEnvironment() {
-  const [timeRange, setTimeRange] = useState<TimeRange>('1h');
+  const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [dhtData, setDhtData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -62,29 +56,39 @@ export default function WarehouseEnvironment() {
     const fetchDHTHistory = async () => {
       try {
         setLoading(true);
-        const hours = timeRange === '1h' ? 1 : timeRange === '24h' ? 24 : 168;
         
-        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/sensors/environment/history?hours=${hours}`);
+        // Calculate hours based on time range
+        const hoursMap: Record<TimeRange, number> = {
+          '1h': 1,
+          '24h': 24,
+          '7d': 168
+        };
+        
+        const hours = hoursMap[timeRange];
+        
+        // Fetch real historical data from database
+        const response = await fetch(`http://10.136.57.165:5000/api/sensors/environment/history?hours=${hours}`);
         
         if (!response.ok) {
-          setDhtData([]);
-          return;
+          throw new Error('Failed to fetch historical data');
         }
         
-        const data = await response.json();
+        const result = await response.json();
         
-        if (data.data && data.data.length > 0) {
-          // Format real historical data
-          // Backend returns DESC (newest first), we need ASC (oldest first) for proper chart display
-          const formattedData = data.data.reverse().map((reading: any) => ({
-            time: formatTimeByRange(reading.timestamp, timeRange),
-            temperature: Number(reading.temperature),
-            humidity: Number(reading.humidity),
-            timestamp: reading.timestamp
-          }));
+        if (result.data && result.data.length > 0) {
+          // Format the historical data for charts
+          const formattedData = result.data
+            .reverse() // Oldest to newest
+            .map((reading: any) => ({
+              time: formatTimeByRange(reading.timestamp, timeRange),
+              temperature: Number(reading.temperature.toFixed(1)),
+              humidity: Number(reading.humidity.toFixed(1)),
+              timestamp: reading.timestamp,
+            }));
           
           setDhtData(formattedData);
         } else {
+          // No data available - keep empty array
           setDhtData([]);
         }
       } catch (err) {
@@ -97,7 +101,7 @@ export default function WarehouseEnvironment() {
 
     fetchDHTHistory();
     
-    // Refresh every 60 seconds
+    // Refresh data every 60 seconds
     const interval = setInterval(fetchDHTHistory, 60000);
     return () => clearInterval(interval);
   }, [timeRange]);
@@ -145,18 +149,20 @@ export default function WarehouseEnvironment() {
             </div>
           }
         >
-          {dhtData.length === 0 ? (
+          {loading ? (
             <div className="h-[220px] mt-4 flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <Thermometer className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p className="font-medium">No Historical Data Yet</p>
-                <p className="text-sm">DHT11 readings are saved every 60 seconds</p>
-                <p className="text-xs mt-1">Check back in a few minutes...</p>
-              </div>
+              <p className="text-muted-foreground">Loading data...</p>
+            </div>
+          ) : dhtData.length === 0 ? (
+            <div className="h-[220px] mt-4 flex flex-col items-center justify-center">
+              <Thermometer className="w-12 h-12 text-muted-foreground mb-3" />
+              <p className="text-lg font-medium text-foreground">No Historical Data Yet</p>
+              <p className="text-sm text-muted-foreground mt-1">DHT11 readings are saved every 60 seconds</p>
+              <p className="text-xs text-muted-foreground mt-1">Check back in a few minutes...</p>
             </div>
           ) : (
-          <div className="h-[220px] mt-4">
-            <ResponsiveContainer width="100%" height="100%">
+            <div className="h-[220px] mt-4">
+              <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={dhtData}>
                 <defs>
                   <linearGradient id="tempGradient" x1="0" y1="0" x2="0" y2="1">
@@ -210,17 +216,20 @@ export default function WarehouseEnvironment() {
           title="Humidity Trend" 
           description="Relative humidity percentage"
         >
-          {dhtData.length === 0 ? (
+          {loading ? (
             <div className="h-[200px] mt-4 flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <Droplets className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p className="font-medium">No Historical Data Yet</p>
-                <p className="text-sm">Waiting for DHT11 readings...</p>
-              </div>
+              <p className="text-muted-foreground">Loading data...</p>
+            </div>
+          ) : dhtData.length === 0 ? (
+            <div className="h-[200px] mt-4 flex flex-col items-center justify-center">
+              <Droplets className="w-12 h-12 text-muted-foreground mb-3" />
+              <p className="text-lg font-medium text-foreground">No Historical Data Yet</p>
+              <p className="text-sm text-muted-foreground mt-1">DHT11 readings are saved every 60 seconds</p>
+              <p className="text-xs text-muted-foreground mt-1">Check back in a few minutes...</p>
             </div>
           ) : (
-          <div className="h-[200px] mt-4">
-            <ResponsiveContainer width="100%" height="100%">
+            <div className="h-[200px] mt-4">
+              <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={dhtData}>
                 <defs>
                   <linearGradient id="humidityGradient" x1="0" y1="0" x2="0" y2="1">

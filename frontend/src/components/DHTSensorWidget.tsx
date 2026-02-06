@@ -85,7 +85,7 @@ export function DHTSensorWidget() {
           <CardTitle className="text-lg">🌡️ Environment Monitor</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-center text-gray-500">Loading...</div>
+          <div className="text-center text-muted-foreground">Loading...</div>
         </CardContent>
       </Card>
     );
@@ -108,19 +108,19 @@ export function DHTSensorWidget() {
   }
 
   return (
-    <Card className="w-full bg-gradient-to-br from-slate-900 to-slate-800 border-slate-700">
+    <Card className="w-full">
       {/* Sensor Not Detected Warning Banner */}
       {reading?.status === 'unavailable' && (
-        <div className="bg-amber-500/15 border-b border-amber-500/30 px-6 py-4">
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-6 py-4">
           <div className="flex items-start gap-3">
             <div className="mt-0.5">
-              <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0" />
+              <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold text-amber-400 text-sm mb-1">
+              <h3 className="font-semibold text-amber-700 dark:text-amber-400 text-sm mb-1">
                 ⚠️ DHT Sensor Not Detected
               </h3>
-              <p className="text-amber-300/70 text-xs leading-relaxed">
+              <p className="text-amber-600 dark:text-amber-300/70 text-xs leading-relaxed">
                 Hardware sensor not found on GPIO pin 21 (physical pin 40). 
                 <br />
                 The system is displaying simulated values for testing purposes.
@@ -132,11 +132,11 @@ export function DHTSensorWidget() {
       
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg text-cyan-300 font-semibold">🌡️ Environment (GPIO Pin 40)</CardTitle>
+          <CardTitle className="text-lg text-cyan-600 dark:text-cyan-300 font-semibold">🌡️ Environment (GPIO Pin 40)</CardTitle>
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
             className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
-              autoRefresh ? 'bg-green-500/20 text-green-300' : 'bg-gray-500/20 text-gray-300'
+              autoRefresh ? 'bg-green-500/20 text-green-600 dark:text-green-300' : 'bg-muted text-muted-foreground'
             }`}
           >
             {autoRefresh ? '🔄 Live' : '⏸ Paused'}
@@ -150,10 +150,10 @@ export function DHTSensorWidget() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-300">Temperature</span>
+                  <span className="text-sm font-medium text-foreground">Temperature</span>
                   <span className="text-2xl">{getTempStatus(reading.temperature).emoji}</span>
                 </div>
-                <span className="text-xs text-gray-400">{getTempStatus(reading.temperature).label}</span>
+                <span className="text-xs text-muted-foreground">{getTempStatus(reading.temperature).label}</span>
               </div>
               
               {/* Temperature Value */}
@@ -165,7 +165,7 @@ export function DHTSensorWidget() {
               
               {/* Temperature Progress Bar */}
               <div className="space-y-1">
-                <div className="relative h-4 bg-slate-700 rounded-full overflow-hidden">
+                <div className="relative h-4 bg-muted rounded-full overflow-hidden">
                   {/* Safe zone (15-25°C) */}
                   <div className="absolute h-full bg-green-500/30" style={{ left: '30%', width: '40%' }} />
                   {/* Warning zones */}
@@ -181,7 +181,7 @@ export function DHTSensorWidget() {
                     style={{ left: `${Math.min(Math.max((reading.temperature / 40) * 100, 0), 100)}%`, transform: 'translateX(-50%)' }}
                   />
                 </div>
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-muted-foreground">
                   <span>0°C</span>
                   <span>15°C</span>
                   <span>25°C</span>
@@ -194,10 +194,10 @@ export function DHTSensorWidget() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-300">Humidity</span>
+                  <span className="text-sm font-medium text-foreground">Humidity</span>
                   <span className="text-2xl">{getHumidityStatus(reading.humidity).emoji}</span>
                 </div>
-                <span className="text-xs text-gray-400">{getHumidityStatus(reading.humidity).label}</span>
+                <span className="text-xs text-muted-foreground">{getHumidityStatus(reading.humidity).label}</span>
               </div>
               
               {/* Humidity Value */}
@@ -209,7 +209,7 @@ export function DHTSensorWidget() {
               
               {/* Humidity Progress Bar */}
               <div className="space-y-1">
-                <div className="relative h-4 bg-slate-700 rounded-full overflow-hidden">
+                <div className="relative h-4 bg-muted rounded-full overflow-hidden">
                   {/* Safe zone (30-70%) */}
                   <div className="absolute h-full bg-green-500/30" style={{ left: '30%', width: '40%' }} />
                   {/* Warning zones */}
@@ -225,7 +225,7 @@ export function DHTSensorWidget() {
                     style={{ left: `${reading.humidity}%`, transform: 'translateX(-50%)' }}
                   />
                 </div>
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-muted-foreground">
                   <span>0%</span>
                   <span>30%</span>
                   <span>70%</span>
@@ -235,8 +235,8 @@ export function DHTSensorWidget() {
             </div>
 
             {/* Status Footer */}
-            <div className="pt-4 border-t border-slate-700">
-              <div className="flex items-center justify-between text-xs text-gray-400">
+            <div className="pt-4 border-t border-border">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>Last updated: {new Date(reading.timestamp.endsWith('Z') ? reading.timestamp : reading.timestamp + 'Z').toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })} IST</span>
                 <span className="flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3 text-green-500" />

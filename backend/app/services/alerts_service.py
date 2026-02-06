@@ -214,11 +214,13 @@ class AlertsService:
                 'storage_a': {'x_min': 0, 'x_max': 100, 'y_min': 50, 'y_max': 150},
             }
         
-        # Get recent locations
+        # Get recent locations - use group_by instead of distinct with field
         recent_time = datetime.utcnow() - timedelta(minutes=5)
-        recent_locations = ForkliftLocation.select().where(
-            ForkliftLocation.timestamp >= recent_time
-        ).distinct(ForkliftLocation.forklift_id)
+        recent_locations = (ForkliftLocation
+                           .select()
+                           .where(ForkliftLocation.timestamp >= recent_time)
+                           .group_by(ForkliftLocation.forklift_id)
+                           .order_by(ForkliftLocation.timestamp.desc()))
         
         for location in recent_locations:
             # Check which zone forklift is in

@@ -93,6 +93,59 @@ def get_frame(forklift_id):
         return jsonify({'error': str(e)}), 503
 
 
+@camera_bp.route('/<forklift_id>/latest', methods=['GET'])
+def get_latest_image(forklift_id):
+    """Get the latest uploaded image from forklift camera with compression"""
+    import os
+    from flask import send_file
+    from PIL import Image
+    from io import BytesIO
+    from app.config import Config
+    
+    try:
+        # Get upload folder
+        upload_folder = 'uploads/images'
+        
+        if not os.path.exists(upload_folder):
+            return jsonify({'error': 'Upload folder not found'}), 404
+        
+        # Find latest image for this forklift
+        matching_files = []
+        for filename in os.listdir(upload_folder):
+            if filename.startswith(f"{forklift_id}_") and filename.endswith('.jpg'):
+                filepath = os.path.join(upload_folder, filename)
+                mtime = os.path.getmtime(filepath)
+                matching_files.append((filepath, mtime))
+        
+        if not matching_files:
+            return jsonify({'error': 'No images found for this forklift'}), 404
+        
+        # Sort by modification time (newest first) and get the latest
+        matching_files.sort(key=lambda x: x[1], reverse=True)
+        latest_file = matching_files[0][0]
+        
+        # Compress image for faster transfer (70% size reduction)
+        img = Image.open(latest_file)
+        buffer = BytesIO()
+        img.save(buffer, format='JPEG', quality=Config.IMAGE_COMPRESSION_QUALITY, optimize=True)
+        buffer.seek(0)
+        
+        # Send compressed image with no-cache headers
+        return send_file(
+            buffer,
+            mimetype='image/jpeg',
+            as_attachment=False,
+            download_name=os.path.basename(latest_file),
+            max_age=0,
+            conditional=False,
+            etag=False,
+            last_modified=None
+        )
+    except Exception as e:
+        logger.error(f"Error getting latest image for {forklift_id}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 @camera_bp.route('/<forklift_id>/stream', methods=['GET'])
 def stream(forklift_id):
     """Proxy MJPEG stream from ESP32-CAM"""

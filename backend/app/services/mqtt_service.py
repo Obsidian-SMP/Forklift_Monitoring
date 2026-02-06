@@ -1,9 +1,12 @@
 import paho.mqtt.client as mqtt
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import logging
 import os
+
+# IST timezone (UTC+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
 
 import json as json_module
 from app.models import (
@@ -134,7 +137,7 @@ class MQTTService:
             else:
                 forklift.status = data.get('status', 'active')
                 forklift.battery_level = data.get('battery_level', 100)
-                forklift.last_seen = datetime.utcnow()
+                forklift.last_seen = datetime.now(IST)
                 forklift.is_lifting = data.get('is_lifting', False)
                 forklift.save()
             
@@ -218,7 +221,7 @@ class MQTTService:
             # AI detection disabled - just save image without processing
             # Save image to uploads folder
             os.makedirs('uploads/images', exist_ok=True)
-            timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            timestamp = datetime.now(IST).strftime('%Y%m%d_%H%M%S')
             filename = f"{forklift_id}_{timestamp}.jpg"
             filepath = os.path.join('uploads', 'images', filename)
             

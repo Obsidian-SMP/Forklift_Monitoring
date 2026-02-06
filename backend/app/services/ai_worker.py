@@ -1,7 +1,7 @@
 """
 Background AI Detection Worker
 Processes images asynchronously without blocking the main upload flow
-Uses YOLOv11n for accurate object detection optimized for Raspberry Pi
+Uses custom trained YOLO model: my_model.pt
 """
 import threading
 import queue
@@ -25,78 +25,63 @@ except Exception as e:
 
 
 class AIDetectionWorker:
-    """Background worker for processing AI detection without blocking uploads"""
+    """Background worker for AI detection without blocking uploads"""
     
-    def __init__(self, process_every_n=1):
+    def __init__(self, process_every_n=1, queue_priority='latest'):
         """
-        Initialize AI worker with YOLOv11n optimized for Raspberry Pi
+        Initialize AI worker with custom YOLO model optimized for Raspberry Pi
         
         Args:
             process_every_n: Process every Nth image (1 = process all images)
+            queue_priority: 'latest' = drop old frames, 'all' = process all
         """
         self.model = None
         self.model_type = None
         self.process_every_n = process_every_n
+        self.queue_priority = queue_priority
         self.image_queue = queue.Queue(maxsize=10)
         self.worker_thread = None
         self.running = False
         self.image_counters = {}
         self.classes = []
         
-        # Load YOLOv11n model
+        # Load YOLO model
         self._load_yolo_model()
         
-        logger.info(f"✓ AI Worker initialized with {self.model_type}")
+        logger.info(f"✓ AI Worker initialized with model: {self.model_type}")
     
     def _load_yolo_model(self):
-        """Load YOLO model optimized for Raspberry Pi (YOLOv11n or YOLOv8n)"""
+        """Load custom YOLO model optimized for Raspberry Pi"""
         if not YOLO_AVAILABLE:
             logger.error("Ultralytics not installed. Cannot load YOLO model.")
             print("[AI] ERROR: Ultralytics not installed")
             self.model = None
-            self.model_type = None
             return
         
         try:
-            # Get model paths
+            from app.config import Config
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
             yolo_dir = os.path.join(base_dir, 'yolo_models')
+            os.makedirs(yolo_dir, exist_ok=True)
             
-            # Try YOLOv11n first (requires compatible PyTorch)
-            yolo11_path = os.path.join(yolo_dir, 'yolo11n.pt')
-            yolo8_path = os.path.join(yolo_dir, 'yolov8n.pt')
-            
-            # Check which model to use
-            from app.config import Config
+            # Load custom model
             model_name = Config.YOLO_MODEL
+            model_path = os.path.join(yolo_dir, model_name)
             
-            if 'yolo11' in model_name.lower() and os.path.exists(yolo11_path):
-                logger.info("Loading YOLOv11n...")
-                model_path = yolo11_path
-                self.model_type = 'yolo11n'
-            elif os.path.exists(yolo8_path):
-                logger.info("Loading YOLOv8n (optimized)...")
-                model_path = yolo8_path
-                self.model_type = 'yolov8n'
-            else:
-                # Auto-download YOLOv8n (more compatible than YOLOv11n)
-                logger.info("YOLOv8n not found locally, downloading...")
-                print("[AI] Downloading YOLOv8n model...")
-                self.model = YOLO('yolov8n.pt')
-                
-                # Save for future use
-                os.makedirs(yolo_dir, exist_ok=True)
-                model_path = yolo8_path
-                self.model_type = 'yolov8n'
-                logger.info(f"✓ YOLOv8n downloaded")
-            
-            # Load model
-            if self.model is None:
+            if os.path.exists(model_path):
+                logger.info(f"Loading custom model: {model_name}...")
+                print(f"[AI] Loading custom model: {model_name}...")
                 self.model = YOLO(model_path)
-            
-            self.classes = list(self.model.names.values())
-            logger.info(f"✓ {self.model_type} loaded with {len(self.classes)} classes")
-            print(f"[AI] ✓ {self.model_type} loaded with {len(self.classes)} classes (optimized for Raspberry Pi)")
+                self.model_type = model_name
+                self.classes = list(self.model.names.values())
+                logger.info(f"✓ {model_name} loaded with {len(self.classes)} classes")
+                print(f"[AI] ✓ {model_name} loaded with {len(self.classes)} classes: {', '.join(self.classes)}")
+            else:
+                logger.error(f"Model not found: {model_path}")
+                print(f"[AI] ERROR: Model not found: {model_path}")
+                print(f"[AI] Please ensure {model_name} is placed in {yolo_dir}/")
+                self.model = None
+                self.model_type = None
             
         except Exception as e:
             logger.error(f"Failed to load YOLO model: {e}")
@@ -104,13 +89,12 @@ class AIDetectionWorker:
             import traceback
             traceback.print_exc()
             self.model = None
-            self.model_type = None
     
     def start(self):
         """Start the background worker thread"""
         if not self.model:
-            logger.warning("[AI] Worker not started - YOLO model not loaded")
-            print("[AI] Worker not started - YOLO model not loaded")
+            logger.warning("[AI] Worker not started - No YOLO model loaded")
+            print("[AI] Worker not started - No YOLO model loaded")
             return
         
         logger.info("[AI] Starting worker thread...")
@@ -147,7 +131,7 @@ class AIDetectionWorker:
     
     def queue_image(self, filepath, forklift_id, metadata=None):
         """
-        Queue an image for AI processing
+        Queue an image for AI processing with priority mode
         
         Args:
             filepath: Path to image file
@@ -162,6 +146,15 @@ class AIDetectionWorker:
             return False
         
         try:
+            # Priority mode: clear old frames if 'latest' mode enabled
+            if self.queue_priority == 'latest' and self.image_queue.qsize() > 2:
+                # Drop old frames, only keep latest
+                while self.image_queue.qsize() > 1:
+                    try:
+                        self.image_queue.get_nowait()
+                    except queue.Empty:
+                        break
+            
             # Non-blocking put - if queue is full, skip this image
             self.image_queue.put_nowait({
                 'filepath': filepath,
@@ -198,7 +191,7 @@ class AIDetectionWorker:
                 time.sleep(1)
     
     def _process_image(self, task):
-        """Process a single image with YOLO detection (YOLOv8 or YOLOv4-tiny)"""
+        """Process a single image with YOLO model"""
         filepath = task['filepath']
         forklift_id = task['forklift_id']
         
@@ -210,8 +203,8 @@ class AIDetectionWorker:
             
             start_time = time.time()
             
-            # Process with optimized YOLO
-            detected_objects = self._process_yolo(filepath)
+            # Process with model
+            detected_objects = self._process_model(filepath)
             
             processing_time = time.time() - start_time
             
@@ -231,7 +224,7 @@ class AIDetectionWorker:
                 'count': len(detected_objects),
                 'processing_time': processing_time,
                 'processed_at': datetime.utcnow().isoformat(),
-                'model': self.model_type
+                'model': self.model_type or 'none'
             }
             
         except Exception as e:
@@ -239,54 +232,53 @@ class AIDetectionWorker:
             import traceback
             traceback.print_exc()
     
-    def _process_yolo(self, filepath):
-        """Process image with YOLO optimized for Raspberry Pi"""
+    def _process_model(self, filepath):
+        """Process image with YOLO model"""
         from app.config import Config
         
-        detected_objects = []
+        if not self.model:
+            return []
+        
         try:
-            # Run inference with optimized parameters
             results = self.model(
                 filepath,
-                conf=Config.AI_CONFIDENCE,      # 0.65 confidence
-                iou=Config.AI_IOU_THRESHOLD,    # 0.45 NMS threshold
-                imgsz=Config.AI_INPUT_SIZE,     # 416x416 input size
+                conf=Config.AI_CONFIDENCE,
+                iou=Config.AI_IOU_THRESHOLD,
+                imgsz=Config.AI_INPUT_SIZE,
                 verbose=False,
-                half=False,  # Use FP32 (FP16 not supported on Pi CPU)
+                half=False,
                 device='cpu'
             )
             
-            # Process results - filter warehouse-relevant classes
-            warehouse_classes = Config.WAREHOUSE_CLASSES if hasattr(Config, 'WAREHOUSE_CLASSES') else None
+            allowed_classes = Config.ALLOWED_CLASSES if hasattr(Config, 'ALLOWED_CLASSES') else []
+            detections = []
             
             for result in results:
                 boxes = result.boxes
                 for box in boxes:
-                    # Get box coordinates
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                     x, y, w, h = int(x1), int(y1), int(x2 - x1), int(y2 - y1)
                     
-                    # Get class and confidence
                     class_id = int(box.cls[0])
                     confidence = float(box.conf[0])
                     class_name = self.classes[class_id]
                     
-                    # Filter by warehouse classes if configured
-                    if warehouse_classes is None or class_id in warehouse_classes:
-                        detected_objects.append({
+                    # Filter if class list is defined (empty list = detect all)
+                    if not allowed_classes or class_id in allowed_classes:
+                        detections.append({
                             'name': class_name,
                             'confidence': confidence,
                             'bbox': [x, y, w, h],
                             'class_id': class_id
                         })
+            
+            return detections
+            
         except Exception as e:
-            logger.error(f"YOLOv11n processing error: {e}")
+            logger.error(f"Model processing error: {e}")
             import traceback
             traceback.print_exc()
-        
-        return detected_objects
-        
-        return detected_objects
+            return []
     
     def _add_to_inventory(self, detected_objects, forklift_id, image_path):
         """Add detected objects to inventory with proper naming and annotated images"""
@@ -351,9 +343,10 @@ class AIDetectionWorker:
                 bbox_area = bbox[2] * bbox[3]  # width * height
                 notes = f"AI detected {obj_name} (confidence: {confidence:.0%}, area: {bbox_area}px)"
                 
-                # Save to database
+                # Save to database with object_type
                 DetectedObject.create(
                     object_id=object_id,
+                    object_type=obj_name,  # Set the object type (red_box, blue_box, black_box, etc.)
                     forklift_id=forklift_id,
                     photo_url=f"/uploads/images/{annotated_filename}",
                     position_x=0,
@@ -396,14 +389,19 @@ def init_ai_worker(app):
     
     print("[AI] Initializing AI worker (optimized for Raspberry Pi)...")
     process_every_n = app.config.get('AI_PROCESS_EVERY_N', 1)
+    queue_priority = app.config.get('AI_QUEUE_PRIORITY', 'latest')
     
-    ai_worker = AIDetectionWorker(process_every_n=process_every_n)
+    ai_worker = AIDetectionWorker(
+        process_every_n=process_every_n,
+        queue_priority=queue_priority
+    )
     
     if ai_worker.model:
         print(f"[AI] ✓ {ai_worker.model_type} model loaded successfully with {len(ai_worker.classes)} classes")
         print(f"[AI] ✓ Confidence threshold: {app.config.get('AI_CONFIDENCE', 0.65)}")
         print(f"[AI] ✓ Input size: {app.config.get('AI_INPUT_SIZE', 416)}x{app.config.get('AI_INPUT_SIZE', 416)}")
-        print(f"[AI] ✓ Processing: every frame (optimized)")
+        print(f"[AI] ✓ Processing: every frame (queue mode: {queue_priority})")
+        print(f"[AI] ✓ Image compression: {app.config.get('IMAGE_COMPRESSION_QUALITY', 75)}% quality")
         ai_worker.start()
     else:
         print("[AI] WARNING: YOLO model not loaded, AI detection disabled")

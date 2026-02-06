@@ -10,7 +10,17 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useState, useEffect } from 'react';
-import { mockAlerts, mockKPIData } from '@/data/mockData';
+import { useNavigate } from 'react-router-dom';
+
+interface Alert {
+  id: string;
+  type: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  message: string;
+  source: string;
+  timestamp: string;
+  acknowledged?: boolean;
+}
 
 interface TopStatusBarProps {
   sidebarCollapsed: boolean;
@@ -18,10 +28,51 @@ interface TopStatusBarProps {
 
 export function TopStatusBar({ sidebarCollapsed }: TopStatusBarProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    // Initialize from localStorage
+    const saved = localStorage.getItem('darkMode');
+    return saved === 'true';
+  });
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const navigate = useNavigate();
   
-  const unacknowledgedAlerts = mockAlerts.filter(a => !a.acknowledged).length;
-  const criticalAlerts = mockAlerts.filter(a => !a.acknowledged && a.severity === 'critical').length;
+  const API_BASE = 'http://10.136.57.165:5000/api';
+  
+  // Severity order for sorting (higher value = more important)
+  const severityOrder: Record<string, number> = {
+    critical: 5,
+    high: 4,
+    medium: 3,
+    low: 2,
+    info: 1,
+  };
+  
+  // Filter and sort alerts
+  const unacknowledgedAlerts = alerts
+    .filter(a => !a.acknowledged)
+    .sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity]);
+  
+  const criticalAlerts = unacknowledgedAlerts.filter(a => a.severity === 'critical').length;
+
+  // Fetch alerts from API
+  useEffect(() => {
+    const fetchAlerts = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/alerts`);
+        if (response.ok) {
+          const data = await response.json();
+          setAlerts(data.alerts || []);
+        }
+      } catch (err) {
+        console.error('Error fetching alerts:', err);
+      }
+    };
+    
+    fetchAlerts();
+    // Refresh alerts every 5 seconds
+    const interval = setInterval(fetchAlerts, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -31,8 +82,10 @@ export function TopStatusBar({ sidebarCollapsed }: TopStatusBarProps) {
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
+      localStorage.setItem('darkMode', 'true');
     } else {
       document.documentElement.classList.remove('dark');
+      localStorage.setItem('darkMode', 'false');
     }
   }, [isDarkMode]);
 
@@ -49,13 +102,6 @@ export function TopStatusBar({ sidebarCollapsed }: TopStatusBarProps) {
           <div className="flex items-center gap-2">
             <StatusDot variant="safe" />
             <span className="text-sm font-medium">System Online</span>
-          </div>
-          
-          <div className="hidden md:flex items-center gap-4 text-sm text-muted-foreground">
-            <div className="flex items-center gap-1.5">
-              <Wifi className="h-4 w-4" />
-              <span>{mockKPIData.activeForklifts}/{mockKPIData.totalForklifts} Connected</span>
-            </div>
           </div>
         </div>
 
@@ -93,7 +139,7 @@ export function TopStatusBar({ sidebarCollapsed }: TopStatusBarProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative h-9 w-9">
                 <Bell className="h-4 w-4" />
-                {unacknowledgedAlerts > 0 && (
+                {unacknowledgedAlerts.length > 0 && (
                   <Badge 
                     className={cn(
                       'absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-[10px]',
@@ -102,7 +148,7 @@ export function TopStatusBar({ sidebarCollapsed }: TopStatusBarProps) {
                         : 'bg-status-warning text-status-warning-foreground'
                     )}
                   >
-                    {unacknowledgedAlerts}
+                    {unacknowledgedAlerts.length}
                   </Badge>
                 )}
               </Button>
@@ -111,28 +157,40 @@ export function TopStatusBar({ sidebarCollapsed }: TopStatusBarProps) {
               <div className="px-3 py-2 border-b">
                 <h4 className="font-semibold text-sm">Active Alerts</h4>
                 <p className="text-xs text-muted-foreground">
-                  {unacknowledgedAlerts} unacknowledged alerts
+                  {unacknowledgedAlerts.length} unacknowledged alerts
                 </p>
               </div>
-              {mockAlerts.filter(a => !a.acknowledged).slice(0, 5).map((alert) => (
-                <DropdownMenuItem key={alert.id} className="flex items-start gap-3 py-3">
-                  <StatusDot 
-                    variant={
-                      alert.severity === 'critical' ? 'danger' :
-                      alert.severity === 'high' ? 'warning' :
-                      'safe'
-                    } 
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{alert.message}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(alert.timestamp).toLocaleTimeString()}
-                    </p>
-                  </div>
-                </DropdownMenuItem>
-              ))}
+              {unacknowledgedAlerts.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                  No active alerts
+                </div>
+              ) : (
+                unacknowledgedAlerts.slice(0, 5).map((alert) => (
+                  <DropdownMenuItem key={alert.id} className="flex items-start gap-3 py-3">
+                    <StatusDot 
+                      variant={
+                        alert.severity === 'critical' ? 'danger' :
+                        alert.severity === 'high' ? 'warning' :
+                        alert.severity === 'medium' ? 'warning' :
+                        'safe'
+                      } 
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{alert.message}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(alert.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
+                      </p>
+                    </div>
+                  </DropdownMenuItem>
+                ))
+              )}
               <div className="px-3 py-2 border-t">
-                <Button variant="ghost" size="sm" className="w-full text-xs">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="w-full text-xs"
+                  onClick={() => navigate('/alerts')}
+                >
                   View All Alerts
                 </Button>
               </div>

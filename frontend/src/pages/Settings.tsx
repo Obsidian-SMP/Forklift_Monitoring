@@ -350,7 +350,7 @@ export default function Settings() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}
+                        {user.lastLogin ? new Date(user.lastLogin).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST' : 'Never'}
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">

@@ -10,22 +10,38 @@ import {
   RefreshCw,
   Wifi,
   Activity,
+  Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 export default function ForkliftMonitoring() {
   const [forklift, setForklift] = useState<any>(null);
   const [cameraData, setCameraData] = useState<any>(null);
   const [streamError, setStreamError] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [imageKey, setImageKey] = useState(0); // Force image refresh
+  const [useMJPEG, setUseMJPEG] = useState(false); // Toggle between MJPEG and polling mode
 
   // Fetch forklift and camera data
   useEffect(() => {
     fetchForkliftData();
-    const interval = setInterval(fetchForkliftData, 5000); // Refresh every 5 seconds
+    const interval = setInterval(fetchForkliftData, 15000); // Refresh every 15 seconds (reduced server load)
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-refresh camera image every 2 seconds (balanced performance on RPi) - only in polling mode
+  useEffect(() => {
+    if (forklift?.id && cameraData?.status === 'online' && !useMJPEG) {
+      const imageRefreshInterval = setInterval(() => {
+        setImageKey(prev => prev + 1); // Force image reload by changing key
+      }, 1000); // Refresh every 1 second for faster updates
+      
+      return () => clearInterval(imageRefreshInterval);
+    }
+  }, [forklift?.id, cameraData?.status, useMJPEG]);
 
   const fetchForkliftData = async () => {
     try {
@@ -110,20 +126,61 @@ export default function ForkliftMonitoring() {
                 </CardHeader>
                 <CardContent>
                   {cameraData?.ip && cameraData?.status === 'online' ? (
-                    <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
-                      <img 
-                        src={`http://localhost:5000/api/camera/${forklift.id}/stream`}
-                        alt={`${forklift.id} camera stream`}
-                        className="w-full h-full object-contain"
-                        onError={(e) => {
-                          console.error('📹 Stream error');
-                          setStreamError('Stream unavailable. Check ESP32-CAM connection.');
-                        }}
-                        onLoad={() => {
-                          console.log('📹 Stream loaded successfully');
-                          setStreamError('');
-                        }}
-                      />
+                    <div className="space-y-4">
+                      {/* Stream Mode Toggle */}
+                      <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <Zap className="h-5 w-5 text-amber-500" />
+                          <div>
+                            <Label htmlFor="mjpeg-mode" className="text-sm font-medium cursor-pointer">
+                              Fast Mode (MJPEG Stream)
+                            </Label>
+                            <p className="text-xs text-muted-foreground">
+                              {useMJPEG ? '⚡ Fastest - Single viewer only' : '👥 Slower - Multiple viewers OK'}
+                            </p>
+                          </div>
+                        </div>
+                        <Switch 
+                          id="mjpeg-mode"
+                          checked={useMJPEG}
+                          onCheckedChange={setUseMJPEG}
+                        />
+                      </div>
+                      
+                      {/* Camera Stream */}
+                      <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                        {useMJPEG ? (
+                          // MJPEG Stream Mode - Faster, single viewer
+                          <img 
+                            src={`${import.meta.env.VITE_API_URL?.replace('/api', '')}/api/camera/${forklift.id}/stream`}
+                            alt={`${forklift.id} MJPEG stream`}
+                            className="w-full h-full object-contain"
+                            onError={(e) => {
+                              console.error('📹 MJPEG stream error');
+                              setStreamError('MJPEG stream unavailable. Try polling mode.');
+                            }}
+                            onLoad={() => {
+                              console.log('📹 MJPEG stream connected');
+                              setStreamError('');
+                            }}
+                          />
+                        ) : (
+                          // Polling Mode - Slower but supports multiple viewers
+                          <img 
+                            key={imageKey}
+                            src={apiService.getCameraLatestImageUrl(forklift.id)}
+                            alt={`${forklift.id} camera feed`}
+                            className="w-full h-full object-contain"
+                            onError={(e) => {
+                              console.error('📹 Image load error');
+                              setStreamError('Image unavailable. Check ESP32-CAM connection.');
+                            }}
+                            onLoad={() => {
+                              console.log('📹 Image loaded successfully');
+                              setStreamError('');
+                            }}
+                          />
+                        )}
                       {streamError && (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                           <div className="text-center">
@@ -140,10 +197,11 @@ export default function ForkliftMonitoring() {
                               <span className="absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
                               <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
                             </span>
-                            LIVE
+                            {useMJPEG ? 'LIVE • MJPEG' : 'LIVE'}
                           </div>
                         </div>
                       )}
+                      </div>
                     </div>
                   ) : (
                     <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
@@ -205,23 +263,17 @@ export default function ForkliftMonitoring() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Backend Proxy</p>
+                    <p className="text-xs text-muted-foreground mb-1">Latest Image (1s refresh)</p>
                     <code className="text-xs bg-muted px-2 py-1 rounded block break-all">
-                      http://localhost:5000/api/camera/{forklift.id}/stream
+                      {apiService.getCameraLatestImageUrl(forklift.id).split('?')[0]}
                     </code>
                   </div>
                   {cameraData?.ip && (
                     <>
                       <div>
-                        <p className="text-xs text-muted-foreground mb-1">Direct ESP32-CAM</p>
+                        <p className="text-xs text-muted-foreground mb-1">Direct ESP32-CAM Stream</p>
                         <code className="text-xs bg-muted px-2 py-1 rounded block break-all">
-                          http://{cameraData.ip}/stream
-                        </code>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Snapshot</p>
-                        <code className="text-xs bg-muted px-2 py-1 rounded block break-all">
-                          http://{cameraData.ip}/snapshot
+                          http://{cameraData.ip}/
                         </code>
                       </div>
                     </>
@@ -229,11 +281,11 @@ export default function ForkliftMonitoring() {
                   <div className="pt-2 border-t">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">Format</span>
-                      <span className="font-medium">MJPEG Stream</span>
+                      <span className="font-medium">JPEG (Auto-refresh)</span>
                     </div>
                     <div className="flex items-center justify-between text-xs mt-1">
-                      <span className="text-muted-foreground">Resolution</span>
-                      <span className="font-medium">1600x1200</span>
+                      <span className="text-muted-foreground">Update Rate</span>
+                      <span className="font-medium">1 frame/second</span>
                     </div>
                     <div className="flex items-center justify-between text-xs mt-1">
                       <span className="text-muted-foreground">Frame Rate</span>

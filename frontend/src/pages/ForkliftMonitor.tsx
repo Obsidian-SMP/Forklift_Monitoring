@@ -172,7 +172,7 @@ export default function ForkliftMonitor() {
               <Camera className="w-8 h-8" />
               Forklift Monitor
             </h1>
-            <p className="text-gray-600">Live camera streams for forklift fleet</p>
+            <p className="text-muted-foreground">Live camera streams for forklift fleet</p>
           </div>
           <Button variant="outline" onClick={fetchForkliftList}>
             <RefreshCw className="w-4 h-4 mr-2" />
@@ -218,7 +218,7 @@ export default function ForkliftMonitor() {
                         e.stopPropagation();
                         deleteForklift(forklift.id);
                       }}
-                      className="ml-1 p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition"
+                      className="ml-1 p-1 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10 rounded transition"
                       title={`Delete ${forklift.id}`}
                     >
                       <X className="w-4 h-4" />
@@ -232,7 +232,7 @@ export default function ForkliftMonitor() {
 
         {/* Add Forklift Modal */}
         {showAddForkliftModal && (
-          <Card className="border-blue-500 bg-blue-50">
+          <Card className="border-blue-500 bg-blue-500/10">
             <CardHeader>
               <CardTitle>Add Forklift (Testing)</CardTitle>
               <CardDescription>Create a new forklift entry for testing multi-camera functionality</CardDescription>
@@ -269,33 +269,33 @@ export default function ForkliftMonitor() {
 
         {/* Status Alerts */}
         {error && (
-          <Alert className="border-red-500 bg-red-50">
-            <AlertTriangle className="h-4 w-4 text-red-600" />
-            <AlertDescription className="text-red-800">{error}</AlertDescription>
+          <Alert className="border-red-500 bg-red-500/10">
+            <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
+            <AlertDescription className="text-red-800 dark:text-red-300">{error}</AlertDescription>
           </Alert>
         )}
 
         {currentForklift && currentForklift.status === 'online' && (
-          <Alert className="border-green-500 bg-green-50">
-            <AlertDescription className="text-green-800">
+          <Alert className="border-green-500 bg-green-500/10">
+            <AlertDescription className="text-green-800 dark:text-green-300">
               ✓ Camera online - {currentForklift.ip}
             </AlertDescription>
           </Alert>
         )}
 
         {currentForklift && currentForklift.status === 'offline' && currentForklift.ip && (
-          <Alert className="border-yellow-500 bg-yellow-50">
-            <AlertTriangle className="h-4 w-4 text-yellow-600" />
-            <AlertDescription className="text-yellow-800">
+          <Alert className="border-yellow-500 bg-yellow-500/10">
+            <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+            <AlertDescription className="text-yellow-800 dark:text-yellow-300">
               ⚠️ Camera offline - Last IP: {currentForklift.ip}
             </AlertDescription>
           </Alert>
         )}
 
         {currentForklift && !currentForklift.ip && (
-          <Alert className="border-blue-500 bg-blue-50">
-            <AlertTriangle className="h-4 w-4 text-blue-600" />
-            <AlertDescription className="text-blue-800">
+          <Alert className="border-blue-500 bg-blue-500/10">
+            <AlertTriangle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <AlertDescription className="text-blue-800 dark:text-blue-300">
               📡 No camera registered for {selectedForklift}
             </AlertDescription>
           </Alert>
@@ -337,7 +337,7 @@ export default function ForkliftMonitor() {
                 </div>
               )}
               {currentForklift?.ip && (
-                <p className="text-sm text-gray-600">Current IP: <span className="font-mono">{currentForklift.ip}</span></p>
+                <p className="text-sm text-muted-foreground">Current IP: <span className="font-mono">{currentForklift.ip}</span></p>
               )}
             </div>
           </CardContent>
@@ -369,11 +369,11 @@ export default function ForkliftMonitor() {
               <CardTitle>Camera Offline</CardTitle>
               <CardDescription>{selectedForklift}</CardDescription>
             </CardHeader>
-            <CardContent className="flex items-center justify-center h-64 bg-gray-100 rounded">
+            <CardContent className="flex items-center justify-center h-64 bg-muted rounded">
               <div className="text-center">
-                <Camera className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                <p className="text-gray-600">Camera is offline or not registered</p>
-                <p className="text-sm text-gray-500">Register a camera to start monitoring</p>
+                <Camera className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
+                <p className="text-muted-foreground">Camera is offline or not registered</p>
+                <p className="text-sm text-muted-foreground">Register a camera to start monitoring</p>
               </div>
             </CardContent>
           </Card>
@@ -388,11 +388,11 @@ export default function ForkliftMonitor() {
             <CardContent>
               <div className="space-y-2 text-sm">
                 <p><span className="font-semibold">Forklift:</span> {selectedForklift}</p>
-                <p><span className="font-semibold">IP Address:</span> <code className="bg-gray-100 px-2 py-1 rounded">{currentForklift.ip}</code></p>
+                <p><span className="font-semibold">IP Address:</span> <code className="bg-muted px-2 py-1 rounded">{currentForklift.ip}</code></p>
                 <p><span className="font-semibold">Status:</span> {currentForklift.status === 'online' ? '✓ Online' : '✗ Offline'}</p>
                 <p><span className="font-semibold">Stream Type:</span> MJPEG</p>
                 <p><span className="font-semibold">Resolution:</span> 640×480 @ 30 FPS</p>
-                <p><span className="font-semibold">Stream URL:</span> <code className="bg-gray-100 px-2 py-1 rounded text-xs">/api/camera/{selectedForklift}/stream</code></p>
+                <p><span className="font-semibold">Stream URL:</span> <code className="bg-muted px-2 py-1 rounded text-xs">/api/camera/{selectedForklift}/stream</code></p>
               </div>
             </CardContent>
           </Card>

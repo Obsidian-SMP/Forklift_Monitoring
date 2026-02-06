@@ -191,9 +191,49 @@ def delete_inventory_item(item_id):
         if not item:
             return jsonify({'message': 'Item not found'}), 404
         
+        # Unlink all detected objects that reference this inventory item
+        DetectedObject.update(inventory_item=None).where(
+            DetectedObject.inventory_item == item
+        ).execute()
+        
+        # Delete transactions that reference this item (optional - or keep for history)
+        # InventoryTransaction.delete().where(InventoryTransaction.item == item).execute()
+        
         item.delete_instance()
         return jsonify({'message': 'Item deleted successfully'}), 200
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@inventory_bp.route('/<item_id>/dispatch', methods=['POST'])
+def dispatch_inventory_item(item_id):
+    """Dispatch an inventory item"""
+    try:
+        item = Inventory.get_or_none(Inventory.item_id == item_id)
+        if not item:
+            return jsonify({'message': 'Item not found'}), 404
+        
+        # Update item status to dispatched
+        item.status = 'dispatched'
+        item.dispatched_at = datetime.utcnow()
+        item.quantity = max(0, item.quantity - 1)
+        item.save()
+        
+        # Also update the linked detected object if exists
+        detected_obj = DetectedObject.get_or_none(DetectedObject.object_id == item_id)
+        if detected_obj:
+            detected_obj.status = 'dispatched'
+            detected_obj.save()
+        
+        return jsonify({
+            'message': 'Item dispatched successfully',
+            'item': item.to_dict()
+        }), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
@@ -314,6 +354,7 @@ def create_detected_object():
         
         detected_obj = DetectedObject.create(
             object_id=object_id,
+            object_type=data.get('object_type'),  # black_box, blue_box, red_box
             forklift_id=data.get('forklift_id'),
             camera_id=data.get('camera_id'),
             photo_url=data.get('photo_url'),
@@ -424,10 +465,16 @@ def detect_from_image():
 def test_detect():
     """Test object detection endpoint - creates or updates detected object with sample image for testing"""
     try:
+        import random
+        
         data = request.get_json()
         forklift_id = data.get('forklift_id', 'forklift-001')
         position_x = data.get('position', {}).get('x', 0)
         position_y = data.get('position', {}).get('y', 0)
+        
+        # Randomly select a box type for testing
+        box_types = ['red_box', 'blue_box', 'black_box']
+        object_type = data.get('object_type', random.choice(box_types))
         
         # Check if this is an existing object or a new one
         existing_obj = find_existing_object(position_x, position_y, 0.95)
@@ -435,9 +482,16 @@ def test_detect():
         # Generate a test image with cv2
         test_img = np.ones((480, 640, 3), dtype=np.uint8) * 150
         
-        # Draw a box to simulate detection
-        cv2.rectangle(test_img, (100, 100), (400, 300), (50, 200, 50), -1)
-        cv2.putText(test_img, 'Test Object Detection', (150, 200), 
+        # Draw a colored box based on type
+        if object_type == 'red_box':
+            box_color = (50, 50, 200)  # BGR: red
+        elif object_type == 'blue_box':
+            box_color = (200, 50, 50)  # BGR: blue
+        else:  # black_box
+            box_color = (50, 50, 50)   # BGR: dark gray/black
+        
+        cv2.rectangle(test_img, (100, 100), (400, 300), box_color, -1)
+        cv2.putText(test_img, f'{object_type.replace("_", " ").title()}', (150, 200), 
                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         
         # Save test image
@@ -451,6 +505,7 @@ def test_detect():
         
         if existing_obj:
             # Update existing object - same object detected again
+            existing_obj.object_type = object_type
             existing_obj.photo_url = photo_url
             existing_obj.position_x = position_x
             existing_obj.position_y = position_y
@@ -479,6 +534,7 @@ def test_detect():
             # Create new detected object
             detected_obj = DetectedObject.create(
                 object_id=object_id,
+                object_type=object_type,
                 forklift_id=forklift_id,
                 photo_url=photo_url,
                 position_x=position_x,
@@ -486,7 +542,7 @@ def test_detect():
                 position_z=data.get('position', {}).get('z', 0),
                 status='detected',
                 confidence_score=0.95,
-                notes=f'New object detected on {forklift_id} - {"Within" if within_coverage else "Outside"} gateway coverage'
+                notes=f'New {object_type} detected on {forklift_id} - {"Within" if within_coverage else "Outside"} gateway coverage'
             )
             
             return jsonify({
@@ -510,10 +566,59 @@ def update_detected_object(object_id):
             return jsonify({'message': 'Object not found'}), 404
         
         data = request.get_json()
+        old_status = obj.status
         
         # Update basic fields
         if 'status' in data:
-            obj.status = data['status']
+            new_status = data['status']
+            obj.status = new_status
+            
+            # Auto-create or update inventory item when status changes to 'placed'
+            if new_status == 'placed' and old_status != 'placed':
+                # Check if inventory item already exists for this object
+                if not obj.inventory_item:
+                    # Create new inventory item from detected object
+                    try:
+                        # Generate item name based on object type
+                        object_type = obj.object_type if obj.object_type else 'unknown'
+                        item_name = f"{object_type.replace('_', ' ').title()}"
+                        category = object_type.replace('_box', '').title() if '_box' in object_type else 'General'
+                        
+                        # Create inventory item
+                        inventory_item = Inventory.create(
+                            item_id=obj.object_id,  # Use object_id as item_id
+                            item_name=item_name,
+                            category=category,
+                            quantity=1,
+                            unit='box',
+                            zone='auto-detected',
+                            status='in_stock',
+                            image_url=obj.photo_url,
+                            description=f'Auto-created from detection on {obj.forklift_id}',
+                            placed_at=datetime.utcnow()
+                        )
+                        
+                        # Link the inventory item to the detected object
+                        obj.inventory_item = inventory_item
+                        obj.notes = f'Placed in warehouse - Inventory item created: {inventory_item.item_id}'
+                        
+                    except Exception as inv_err:
+                        print(f"Error creating inventory item: {inv_err}")
+                        # Continue even if inventory creation fails
+                else:
+                    # Update existing inventory item status
+                    obj.inventory_item.status = 'in_stock'
+                    if not obj.inventory_item.placed_at:
+                        obj.inventory_item.placed_at = datetime.utcnow()
+                    obj.inventory_item.save()
+            
+            # Update inventory item when status changes to 'dispatched'
+            elif new_status == 'dispatched' and obj.inventory_item:
+                obj.inventory_item.status = 'dispatched'
+                obj.inventory_item.quantity = max(0, obj.inventory_item.quantity - 1)
+                obj.inventory_item.dispatched_at = datetime.utcnow()
+                obj.inventory_item.save()
+        
         if 'location_mismatch' in data:
             obj.location_mismatch = data['location_mismatch']
         if 'is_mismatch_flagged' in data:
@@ -530,6 +635,8 @@ def update_detected_object(object_id):
         obj.save()
         return jsonify(obj.to_dict()), 200
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 400
 
 
@@ -646,39 +753,183 @@ def create_warehouse_event():
 
 @inventory_bp.route('/warehouse-stats', methods=['GET'])
 def get_warehouse_stats():
-    """Get warehouse inventory statistics"""
+    """Get warehouse inventory statistics with colored box tracking"""
     try:
-        # Count entry/exit events
+        from datetime import datetime, timedelta
+        
+        # === WAREHOUSE ENTRY/EXIT STATISTICS ===
         entries = WarehouseEntry.select().where(WarehouseEntry.event_type == 'entry').count()
         exits = WarehouseEntry.select().where(WarehouseEntry.event_type == 'exit').count()
+        net_objects = entries - exits
         
-        # Count detected objects by status
+        # === DETECTION STATISTICS ===
+        # Total detected objects
         total_detected = DetectedObject.select().count()
-        placed = DetectedObject.select().where(DetectedObject.status == 'placed').count()
-        dispatched = DetectedObject.select().where(DetectedObject.status == 'dispatched').count()
-        mismatches = DetectedObject.select().where(DetectedObject.is_mismatch_flagged == 'true').count()
         
-        # Count inventory
-        total_items = Inventory.select().count()
-        in_stock = Inventory.select().where(Inventory.status == 'in_stock').count()
-        in_transit = Inventory.select().where(Inventory.status == 'in_transit').count()
+        # Count by color (all time)
+        red_boxes_detected = DetectedObject.select().where(
+            DetectedObject.object_type == 'red_box'
+        ).count()
+        
+        blue_boxes_detected = DetectedObject.select().where(
+            DetectedObject.object_type == 'blue_box'
+        ).count()
+        
+        black_boxes_detected = DetectedObject.select().where(
+            DetectedObject.object_type == 'black_box'
+        ).count()
+        
+        # === WAREHOUSE STATISTICS (Current Stock) ===
+        # Count boxes currently in warehouse (detected or placed status)
+        warehouse_statuses = ['detected', 'placed']
+        
+        red_boxes_in_warehouse = DetectedObject.select().where(
+            (DetectedObject.object_type == 'red_box') &
+            (DetectedObject.status.in_(warehouse_statuses))
+        ).count()
+        
+        blue_boxes_in_warehouse = DetectedObject.select().where(
+            (DetectedObject.object_type == 'blue_box') &
+            (DetectedObject.status.in_(warehouse_statuses))
+        ).count()
+        
+        black_boxes_in_warehouse = DetectedObject.select().where(
+            (DetectedObject.object_type == 'black_box') &
+            (DetectedObject.status.in_(warehouse_statuses))
+        ).count()
+        
+        # === INVENTORY ITEMS STATISTICS ===
+        total_inventory_items = Inventory.select().count()
+        
+        # === MISMATCHES ===
+        mismatches = DetectedObject.select().where(
+            DetectedObject.is_mismatch_flagged == 'true'
+        ).count()
         
         return jsonify({
             'warehouse_events': {
                 'entries': entries,
                 'exits': exits,
-                'net_objects': entries - exits
+                'net_objects': net_objects
             },
-            'detected_objects': {
-                'total': total_detected,
-                'placed': placed,
-                'dispatched': dispatched,
-                'mismatches': mismatches
+            'detection_statistics': {
+                'total_detected': total_detected,
+                'red_boxes_detected': red_boxes_detected,
+                'blue_boxes_detected': blue_boxes_detected,
+                'black_boxes_detected': black_boxes_detected
+            },
+            'warehouse_statistics': {
+                'red_boxes_in_warehouse': red_boxes_in_warehouse,
+                'blue_boxes_in_warehouse': blue_boxes_in_warehouse,
+                'black_boxes_in_warehouse': black_boxes_in_warehouse,
+                'total_in_warehouse': red_boxes_in_warehouse + blue_boxes_in_warehouse + black_boxes_in_warehouse
             },
             'inventory': {
-                'total_items': total_items,
-                'in_stock': in_stock,
-                'in_transit': in_transit
+                'total_items': total_inventory_items,
+                'mismatches': mismatches
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@inventory_bp.route('/general-statistics', methods=['GET'])
+def get_general_statistics():
+    """Get time-based statistics for boxes entering/exiting warehouse"""
+    try:
+        from datetime import datetime, timedelta
+        
+        # Get time period from query parameter (day, month, year)
+        period = request.args.get('period', 'day')  # default to day
+        
+        # Calculate time range
+        now = datetime.utcnow()
+        if period == 'day':
+            start_time = now - timedelta(days=1)
+        elif period == 'month':
+            start_time = now - timedelta(days=30)
+        elif period == 'year':
+            start_time = now - timedelta(days=365)
+        else:
+            start_time = now - timedelta(days=1)  # default to day
+        
+        # Helper function to count boxes by color and status in time period
+        def count_boxes_by_color_status(box_color, status_list, start_time):
+            return DetectedObject.select().where(
+                (DetectedObject.object_type == box_color) &
+                (DetectedObject.status.in_(status_list)) &
+                (DetectedObject.detection_timestamp >= start_time)
+            ).count()
+        
+        # Count entering boxes (detected, placed)
+        entering_statuses = ['detected', 'placed']
+        red_entering = count_boxes_by_color_status('red_box', entering_statuses, start_time)
+        blue_entering = count_boxes_by_color_status('blue_box', entering_statuses, start_time)
+        black_entering = count_boxes_by_color_status('black_box', entering_statuses, start_time)
+        
+        # Count exiting boxes (dispatched, picked_up)
+        exiting_statuses = ['dispatched', 'picked_up']
+        red_exiting = count_boxes_by_color_status('red_box', exiting_statuses, start_time)
+        blue_exiting = count_boxes_by_color_status('blue_box', exiting_statuses, start_time)
+        black_exiting = count_boxes_by_color_status('black_box', exiting_statuses, start_time)
+        
+        # Calculate totals
+        total_entering = red_entering + blue_entering + black_entering
+        total_exiting = red_exiting + blue_exiting + black_exiting
+        total_movement = total_entering + total_exiting
+        
+        # Calculate averages and percentages
+        if total_movement > 0:
+            entering_percentage = round((total_entering / total_movement) * 100, 2)
+            exiting_percentage = round((total_exiting / total_movement) * 100, 2)
+        else:
+            entering_percentage = 0
+            exiting_percentage = 0
+        
+        # Calculate average per day/month/year based on period
+        if period == 'day':
+            avg_entering = total_entering  # already for 1 day
+            avg_exiting = total_exiting
+            period_label = "per day"
+        elif period == 'month':
+            avg_entering = round(total_entering / 30, 2)
+            avg_exiting = round(total_exiting / 30, 2)
+            period_label = "per month (30 days average)"
+        elif period == 'year':
+            avg_entering = round(total_entering / 365, 2)
+            avg_exiting = round(total_exiting / 365, 2)
+            period_label = "per year (365 days average)"
+        else:
+            avg_entering = total_entering
+            avg_exiting = total_exiting
+            period_label = "per day"
+        
+        return jsonify({
+            'period': period,
+            'period_label': period_label,
+            'time_range': {
+                'start': start_time.isoformat(),
+                'end': now.isoformat()
+            },
+            'entering': {
+                'red_boxes': red_entering,
+                'blue_boxes': blue_entering,
+                'black_boxes': black_entering,
+                'total': total_entering
+            },
+            'exiting': {
+                'red_boxes': red_exiting,
+                'blue_boxes': blue_exiting,
+                'black_boxes': black_exiting,
+                'total': total_exiting
+            },
+            'statistics': {
+                'total_movement': total_movement,
+                'entering_percentage': entering_percentage,
+                'exiting_percentage': exiting_percentage,
+                'avg_entering': avg_entering,
+                'avg_exiting': avg_exiting,
+                'net_change': total_entering - total_exiting
             }
         }), 200
     except Exception as e:

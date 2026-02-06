@@ -95,7 +95,7 @@ export default function ForkliftMonitoringReal() {
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading forklift data...</p>
+            <p className="text-muted-foreground">Loading forklift data...</p>
           </div>
         </div>
       </DashboardLayout>
@@ -206,7 +206,7 @@ export default function ForkliftMonitoringReal() {
             <div className="bg-slate-700 rounded-lg p-12 text-center">
               <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4 opacity-50" />
               <p className="text-gray-400 text-lg mb-2">No forklifts available</p>
-              <p className="text-gray-500 text-sm">Waiting for forklift data from the warehouse...</p>
+              <p className="text-muted-foreground text-sm">Waiting for forklift data from the warehouse...</p>
             </div>
           )}
         </div>
@@ -216,7 +216,7 @@ export default function ForkliftMonitoringReal() {
           <div className="bg-slate-700 rounded-lg p-8 space-y-6">
             <div className="border-b border-slate-600 pb-4">
               <h2 className="text-3xl font-bold text-white mb-2">{selected.forklift_id} - Details</h2>
-              <p className="text-gray-400">Last Updated: {selected.last_seen ? new Date(selected.last_seen).toLocaleString() : 'No data'}</p>
+              <p className="text-gray-400">Last Updated: {selected.last_seen ? new Date(selected.last_seen).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST' : 'No data'}</p>
             </div>
 
             {/* Detailed Metrics Grid */}

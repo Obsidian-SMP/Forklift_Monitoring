@@ -4,8 +4,11 @@ Using adafruit-circuitpython-dht library for reliable readings
 """
 
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import threading
+
+# IST timezone (UTC+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
 
 # Try to import DHT libraries
 try:
@@ -65,7 +68,7 @@ class DHTSensor:
                     return {
                         'temperature': float(temperature),
                         'humidity': float(humidity),
-                        'timestamp': datetime.utcnow().isoformat() + 'Z',
+                        'timestamp': datetime.now(IST).isoformat(),
                         'status': 'success',
                         'source': 'hardware'
                     }
@@ -95,7 +98,7 @@ class DHTSensor:
         return {
             'temperature': round(base_temp + random.uniform(-0.3, 0.3), 1),
             'humidity': round(base_humidity + random.uniform(-1, 1), 1),
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'timestamp': datetime.now(IST).isoformat(),
             'status': 'unavailable',
             'source': 'simulated'
         }
@@ -112,7 +115,7 @@ class DHTSensor:
             if not self.sensor_available:
                 result = self.get_error_reading()
                 self.last_reading = result
-                self.last_read_time = datetime.utcnow()
+                self.last_read_time = datetime.now(IST)
                 return result
             
             # Try to read from hardware (may need multiple attempts)
@@ -123,7 +126,7 @@ class DHTSensor:
                 if result is not None:
                     # Successful read
                     self.last_reading = result
-                    self.last_read_time = datetime.utcnow()
+                    self.last_read_time = datetime.now(IST)
                     return result
                 
                 # Wait before retry (DHT needs time between reads)
@@ -141,7 +144,7 @@ class DHTSensor:
             result = self.get_simulated_reading()
             result['note'] = 'Failed to read DHT11 sensor - using simulated data'
             self.last_reading = result
-            self.last_read_time = datetime.utcnow()
+            self.last_read_time = datetime.now(IST)
             return result
 
 # Global instance

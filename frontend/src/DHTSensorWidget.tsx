@@ -128,7 +128,7 @@ export function DHTSensorWidget() {
 
           {/* Timestamp */}
           <div className="text-xs text-gray-500 text-center">
-            Last update: {new Date(reading.timestamp).toLocaleTimeString()}
+            Last update: {new Date(reading.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
           </div>
 
           {/* Auto-refresh toggle */}

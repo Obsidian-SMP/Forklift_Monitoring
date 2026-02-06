@@ -4,7 +4,7 @@
  * Handles local environment variable or default IP to RPi
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://10.136.57.165:5000/api';
 
 // Generic fetch wrapper with error handling
 async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -350,6 +350,18 @@ export const dhtService = {
       throw error;
     }
   },
+
+  // Get latest camera image URL (for auto-refreshing feed)
+  getCameraLatestImageUrl(forkliftId: string): string {
+    const baseUrl = API_BASE_URL.replace('/api', '');
+    return `${baseUrl}/api/camera/${forkliftId}/latest?t=${Date.now()}`;
+  },
+
+  // Get camera stream URL (MJPEG stream from ESP32-CAM via proxy)
+  getCameraStreamUrl(forkliftId: string): string {
+    const baseUrl = API_BASE_URL.replace('/api', '');
+    return `${baseUrl}/api/camera/${forkliftId}/stream`;
+  }
 };
 
 export default apiService;

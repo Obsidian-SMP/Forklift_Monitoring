@@ -127,7 +127,7 @@ export default function SystemHealth() {
                 <div className="text-right">
                   <div className="text-xs text-muted-foreground">Last heartbeat</div>
                   <div className="text-sm">
-                    {new Date(component.lastHeartbeat).toLocaleTimeString()}
+                    {new Date(component.lastHeartbeat).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
                   </div>
                 </div>
               </div>
@@ -162,12 +162,12 @@ export default function SystemHealth() {
                     </div>
                     <Progress value={forklift.signalStrength} className="h-1.5" />
                     <div className="text-xs text-muted-foreground mt-2">
-                      Updated: {new Date(forklift.lastUpdate).toLocaleTimeString()}
+                      Updated: {new Date(forklift.lastUpdate).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
                     </div>
                   </>
                 ) : (
                   <div className="text-sm text-status-danger">
-                    Last seen: {new Date(forklift.lastUpdate).toLocaleString()}
+                    Last seen: {new Date(forklift.lastUpdate).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
                   </div>
                 )}
               </div>
@@ -189,7 +189,7 @@ export default function SystemHealth() {
                       <span className="font-medium">{sensor}</span>
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {lastSeen.toLocaleTimeString()}
+                      {lastSeen.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
                     </div>
                   </div>
                 );

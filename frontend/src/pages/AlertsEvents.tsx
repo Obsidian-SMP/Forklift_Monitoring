@@ -235,14 +235,14 @@ export default function AlertsEvents() {
                     <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                       <span>Source: {alert.source}</span>
                       <span>•</span>
-                      <span>{new Date(alert.timestamp).toLocaleString()}</span>
+                      <span>{new Date(alert.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</span>
                     </div>
                     {alert.acknowledged && (
                       <div className="flex items-center gap-1 mt-2 text-xs text-status-safe">
                         <CheckCircle2 className="h-3 w-3" />
                         <span>
                           Acknowledged by {alert.acknowledgedBy} at{' '}
-                          {new Date(alert.acknowledgedAt!).toLocaleString()}
+                          {new Date(alert.acknowledgedAt!).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
                         </span>
                       </div>
                     )}

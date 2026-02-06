@@ -4,14 +4,15 @@
  * Displays live RSSI readings, gateway status, and calculated forklift positions
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { GatewaySignalComponent } from '@/components/dashboard/GatewaySignalComponent';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { AlertCircle, Wifi, MapPin, Zap, Activity, Plus, RefreshCw, Trash2, Edit } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertCircle, Wifi, MapPin, Zap, Activity, Plus, RefreshCw, Trash2, Pencil, X } from 'lucide-react';
 import apiService from '@/services/api';
 
 // Convert UTC timestamp to Indian Standard Time (IST - UTC+5:30)
@@ -42,10 +43,9 @@ export default function RSSIMonitoring() {
   const [gateways, setGateways] = useState<any[]>([]);
   const [rssiHistory, setRSSIHistory] = useState<any[]>([]);
   const [position, setPosition] = useState<any>(null);
-  const [forklifts, setForklifts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [refreshInterval, setRefreshInterval] = useState(3000); // Reduced from 2s to 3s
+  const [refreshInterval, setRefreshInterval] = useState(2000);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   // Gateway management state
@@ -55,49 +55,29 @@ export default function RSSIMonitoring() {
     location_y: 0,
     location_z: 0,
   });
+  const [editingGatewayId, setEditingGatewayId] = useState<string | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editModalData, setEditModalData] = useState({ name: '', location_x: 0, location_y: 0, location_z: 0 });
   const [gatewaySubmitting, setGatewaySubmitting] = useState(false);
   const [gatewaySuccess, setGatewaySuccess] = useState<string | null>(null);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
 
-  // Edit gateway state
-  const [editingGateway, setEditingGateway] = useState<any | null>(null);
-  const [editFormData, setEditFormData] = useState({
-    name: '',
-    location_x: 0,
-    location_y: 0,
-    location_z: 0,
-  });
-
-  // Fetch all monitoring data - OPTIMIZED
-  const fetchData = useCallback(async () => {
+  // Fetch all monitoring data
+  const fetchData = async () => {
     try {
       setError(null);
 
-      // Fetch in parallel - reduced RSSI history from 50 to 25 (only showing 20)
+      // Fetch in parallel
       const results = await Promise.allSettled([
         apiService.getGateways(),
-        apiService.getRSSIHistory(25), // Reduced payload size
+        apiService.getRSSIHistory(50),
         apiService.getLatestPosition(),
-        // Removed forklift fetch - not critical for RSSI monitoring
       ]);
 
       const [gatewaysRes, historyRes, positionRes] = results;
 
       if (gatewaysRes.status === 'fulfilled') {
-        const allGateways = gatewaysRes.value.gateways || [];
-        
-        // Sort gateways: active ones at top, inactive at bottom
-        const sortedGateways = [...allGateways].sort((a, b) => {
-          // Active gateways come first
-          if (a.is_active && !b.is_active) return -1;
-          if (!a.is_active && b.is_active) return 1;
-          // Within same group, sort by name
-          return a.name.localeCompare(b.name);
-        });
-        
-        const activeCount = sortedGateways.filter((gw: any) => gw.is_active).length;
-        console.log(`📡 RSSI Monitor: ${activeCount} active gateways, ${allGateways.length - activeCount} inactive (${allGateways.length} total)`);
-        setGateways(sortedGateways);
+        setGateways(gatewaysRes.value.gateways || []);
       }
       if (historyRes.status === 'fulfilled') {
         setRSSIHistory(historyRes.value.readings || []);
@@ -111,7 +91,7 @@ export default function RSSIMonitoring() {
     } finally {
       setLoading(false);
     }
-  }, []); // useCallback for performance
+  };
 
   // Initial fetch
   useEffect(() => {
@@ -125,22 +105,11 @@ export default function RSSIMonitoring() {
     return () => clearInterval(interval);
   }, [refreshInterval, autoRefresh]);
 
-  // Get latest RSSI for each gateway - MEMOIZED for performance
-  const latestRSSIMap = useMemo(() => {
-    const map = new Map<string, number>();
-    // Build map in reverse to get latest readings efficiently
-    for (let i = rssiHistory.length - 1; i >= 0; i--) {
-      const reading = rssiHistory[i];
-      if (!map.has(reading.gateway_id)) {
-        map.set(reading.gateway_id, reading.rssi);
-      }
-    }
-    return map;
-  }, [rssiHistory]);
-
-  const getLatestRSSI = useCallback((gatewayId: string): number | null => {
-    return latestRSSIMap.get(gatewayId) ?? null;
-  }, [latestRSSIMap]);
+  // Get latest RSSI for each gateway
+  const getLatestRSSI = (gatewayId: string): number | null => {
+    const readings = rssiHistory.filter((r) => r.gateway_id === gatewayId);
+    return readings.length > 0 ? readings[readings.length - 1].rssi : null;
+  };
 
   // Get RSSI signal strength indicator
   const getSignalStatus = (rssi: number | null) => {
@@ -197,6 +166,45 @@ export default function RSSIMonitoring() {
     }
   };
 
+  // Edit gateway handler
+  const handleEditGateway = (gateway: any) => {
+    setEditingGatewayId(gateway.gateway_id);
+    setEditModalData({
+      name: gateway.name,
+      location_x: gateway.location.x,
+      location_y: gateway.location.y,
+      location_z: gateway.location.z,
+    });
+    setIsEditModalOpen(true);
+  };
+
+  // Update gateway position from modal
+  const handleUpdateGatewayPosition = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGatewayId) return;
+
+    try {
+      setGatewaySubmitting(true);
+      setGatewayError(null);
+      await apiService.addOrUpdateGateway(
+        editModalData.name,
+        editModalData.location_x,
+        editModalData.location_y,
+        editModalData.location_z
+      );
+      setGatewaySuccess(`Gateway "${editModalData.name}" updated successfully!`);
+      setTimeout(() => setGatewaySuccess(null), 3000);
+      setIsEditModalOpen(false);
+      setEditingGatewayId(null);
+      fetchData();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to update gateway';
+      setGatewayError(errorMsg);
+    } finally {
+      setGatewaySubmitting(false);
+    }
+  };
+
   // Delete gateway handler
   const handleDeleteGateway = async (gatewayId: string, gatewayName: string) => {
     if (!confirm(`Are you sure you want to delete gateway "${gatewayName}"?`)) {
@@ -213,81 +221,13 @@ export default function RSSIMonitoring() {
     }
   };
 
-  // Edit gateway handlers
-  const handleEditGateway = (gateway: any) => {
-    setEditingGateway(gateway);
-    setEditFormData({
-      name: gateway.name,
-      location_x: gateway.location.x,
-      location_y: gateway.location.y,
-      location_z: gateway.location.z,
-    });
-    setGatewayError(null);
-    setGatewaySuccess(null);
-  };
-
-  const handleUpdateGateway = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingGateway) return;
-
-    setGatewaySubmitting(true);
-    setGatewayError(null);
-
-    try {
-      await apiService.updateGateway(editingGateway.gateway_id, {
-        name: editFormData.name,
-        location_x: parseFloat(editFormData.location_x.toString()),
-        location_y: parseFloat(editFormData.location_y.toString()),
-        location_z: parseFloat(editFormData.location_z.toString()),
-      });
-
-      setGatewaySuccess(`Gateway "${editFormData.name}" updated successfully!`);
-      setTimeout(() => setGatewaySuccess(null), 3000);
-      setEditingGateway(null);
-      fetchData();
-    } catch (err) {
-      setGatewayError(err instanceof Error ? err.message : 'Failed to update gateway');
-    } finally {
-      setGatewaySubmitting(false);
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setEditingGateway(null);
-    setEditFormData({
-      name: '',
-      location_x: 0,
-      location_y: 0,
-      location_z: 0,
-    });
-    setGatewayError(null);
-  };
-
   if (loading && gateways.length === 0) {
     return (
       <DashboardLayout>
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-                📡 BLE Gateway & Position Monitor
-              </h1>
-              <p className="text-gray-600 dark:text-gray-300">
-                Loading RSSI data...
-              </p>
-            </div>
-          </div>
-          
-          {/* Skeleton Loading - Gateway Cards */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-slate-700 rounded-lg p-6 shadow-lg animate-pulse">
-                <div className="h-6 bg-slate-600 rounded w-3/4 mb-4"></div>
-                <div className="h-10 bg-slate-600 rounded w-1/2 mb-4"></div>
-                <div className="h-2 bg-slate-600 rounded mb-4"></div>
-                <div className="h-4 bg-slate-600 rounded w-2/3"></div>
-              </div>
-            ))}
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading RSSI data...</p>
           </div>
         </div>
       </DashboardLayout>
@@ -313,13 +253,13 @@ export default function RSSIMonitoring() {
                 const elem = document.getElementById('gateway-management');
                 elem?.scrollIntoView({ behavior: 'smooth' });
               }}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition flex items-center gap-2"
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-600 text-white rounded-lg transition flex items-center gap-2"
             >
               ⚙️ Manage Gateways
             </button>
             <button
               onClick={fetchData}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-lg transition"
             >
               🔄 Refresh
             </button>
@@ -327,8 +267,8 @@ export default function RSSIMonitoring() {
               onClick={() => setAutoRefresh(!autoRefresh)}
               className={`px-4 py-2 rounded-lg transition ${
                 autoRefresh
-                  ? 'bg-green-600 hover:bg-green-700'
-                  : 'bg-gray-600 hover:bg-gray-700'
+                  ? 'bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600'
+                  : 'bg-muted hover:bg-muted/80'
               } text-white`}
             >
               {autoRefresh ? '⏸️' : '▶️'} Auto
@@ -351,30 +291,30 @@ export default function RSSIMonitoring() {
             return (
               <div
                 key={gateway.gateway_id}
-                className="bg-slate-700 rounded-lg p-6 shadow-lg hover:shadow-xl transition"
+                className="bg-card border border-border rounded-lg p-6 shadow-lg hover:shadow-xl transition"
               >
                 {/* Header */}
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-xl font-bold text-white">{gateway.name}</h3>
-                    <p className="text-xs text-gray-400">{gateway.gateway_id}</p>
+                    <h3 className="text-xl font-bold text-foreground">{gateway.name}</h3>
+                    <p className="text-xs text-muted-foreground">{gateway.gateway_id}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <div
                       className={`w-4 h-4 rounded-full ${
-                        gateway.is_active ? 'bg-green-500' : 'bg-gray-500'
+                        gateway.is_active ? 'bg-green-500' : 'bg-muted'
                       }`}
                     ></div>
                     <button
                       onClick={() => handleEditGateway(gateway)}
-                      className="p-2 hover:bg-blue-500/20 rounded transition text-blue-400 hover:text-blue-300"
-                      title="Edit gateway position"
+                      className="p-2 hover:bg-blue-500/20 rounded transition text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300"
+                      title="Edit gateway"
                     >
-                      <Edit className="w-4 h-4" />
+                      <Pencil className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleDeleteGateway(gateway.gateway_id, gateway.name)}
-                      className="p-2 hover:bg-red-500/20 rounded transition text-red-400 hover:text-red-300"
+                      className="p-2 hover:bg-red-500/20 rounded transition text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300"
                       title="Delete gateway"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -384,22 +324,22 @@ export default function RSSIMonitoring() {
 
                 {/* RSSI Value */}
                 <div className="mb-4">
-                  <div className="text-3xl font-bold text-white mb-1">
+                  <div className="text-3xl font-bold text-foreground mb-1">
                     {rssi ? `${rssi} dBm` : '—'}
                   </div>
                   <div
                     className={`text-sm font-semibold ${
                       status.color === 'green'
-                        ? 'text-green-300'
+                        ? 'text-green-600 dark:text-green-400'
                         : status.color === 'blue'
-                        ? 'text-blue-300'
+                        ? 'text-blue-600 dark:text-blue-400'
                         : status.color === 'yellow'
-                        ? 'text-yellow-300'
+                        ? 'text-yellow-600 dark:text-yellow-400'
                         : status.color === 'orange'
-                        ? 'text-orange-300'
+                        ? 'text-orange-600 dark:text-orange-400'
                         : status.color === 'red'
-                        ? 'text-red-300'
-                        : 'text-gray-300'
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-muted-foreground'
                     }`}
                   >
                     {status.label}
@@ -408,7 +348,7 @@ export default function RSSIMonitoring() {
 
                 {/* Signal Strength Bar */}
                 <div className="mb-4">
-                  <div className="w-full bg-slate-600 rounded-full h-2 overflow-hidden">
+                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
                     <div
                       className={`h-full ${status.bg}`}
                       style={{ width: `${status.percent}%` }}
@@ -417,14 +357,14 @@ export default function RSSIMonitoring() {
                 </div>
 
                 {/* Position */}
-                <div className="text-sm text-gray-300 space-y-1">
+                <div className="text-sm text-foreground space-y-1">
                   <div>
-                    <span className="text-gray-400">Position:</span> (
+                    <span className="text-muted-foreground">Position:</span> (
                     {gateway.location.x.toFixed(1)}, {gateway.location.y.toFixed(1)})m
                   </div>
                   {gateway.last_seen && (
                     <div>
-                      <span className="text-gray-400">Last seen:</span>{' '}
+                      <span className="text-muted-foreground">Last seen:</span>{' '}
                       {convertToIST(gateway.last_seen)}
                     </div>
                   )}
@@ -434,169 +374,70 @@ export default function RSSIMonitoring() {
           })}
         </div>
 
-        {/* Edit Gateway Modal */}
-        {editingGateway && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-2xl">
-              <h3 className="text-xl font-bold text-white mb-4">
-                Edit Gateway: {editingGateway.name}
-              </h3>
-              <form onSubmit={handleUpdateGateway} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Gateway Name
-                  </label>
-                  <input
-                    type="text"
-                    value={editFormData.name}
-                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
-                    className="w-full px-4 py-2 bg-slate-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    X Position (meters)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={editFormData.location_x}
-                    onChange={(e) => setEditFormData({ ...editFormData, location_x: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-slate-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Y Position (meters)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={editFormData.location_y}
-                    onChange={(e) => setEditFormData({ ...editFormData, location_y: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-slate-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Z Position (meters)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={editFormData.location_z}
-                    onChange={(e) => setEditFormData({ ...editFormData, location_z: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-slate-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-                <div className="flex gap-3 mt-6">
-                  <button
-                    type="submit"
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition"
-                  >
-                    Update Gateway
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCancelEdit}
-                    className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Position & Stats */}
+        {/* Position & Forklift Info */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Calculated Position */}
           {position && (
-            <div className="bg-slate-700 rounded-lg p-6 shadow-lg">
-              <h2 className="text-2xl font-bold text-white mb-4">📍 Calculated Position</h2>
+            <div className="bg-card border border-border rounded-lg p-6 shadow-lg">
+              <h2 className="text-2xl font-bold text-foreground mb-4">📍 Calculated Position</h2>
               <div className="grid grid-cols-3 gap-4 mb-4">
                 <div>
-                  <div className="text-3xl font-bold text-blue-400">
+                  <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">
                     {position.x.toFixed(2)}m
                   </div>
-                  <div className="text-sm text-gray-400">X Coordinate</div>
+                  <div className="text-sm text-muted-foreground">X Coordinate</div>
                 </div>
                 <div>
-                  <div className="text-3xl font-bold text-green-400">
+                  <div className="text-3xl font-bold text-green-600 dark:text-green-400">
                     {position.y.toFixed(2)}m
                   </div>
-                  <div className="text-sm text-gray-400">Y Coordinate</div>
+                  <div className="text-sm text-muted-foreground">Y Coordinate</div>
                 </div>
                 <div>
-                  <div className="text-3xl font-bold text-purple-400">
+                  <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">
                     {position.z.toFixed(2)}m
                   </div>
-                  <div className="text-sm text-gray-400">Z Height</div>
+                  <div className="text-sm text-muted-foreground">Z Height</div>
                 </div>
               </div>
               {position.accuracy && (
-                <div className="p-3 bg-slate-600 rounded">
-                  <div className="text-yellow-300 font-semibold">
+                <div className="p-3 bg-muted rounded">
+                  <div className="text-amber-600 dark:text-amber-400 font-semibold">
                     Accuracy: ±{position.accuracy.toFixed(2)}m
                   </div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    Based on {position.gateway_count || gateways.length} active gateways
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Based on trilateration of {gateways.length} gateways
                   </div>
                 </div>
               )}
               {position.timestamp && (
-                <div className="text-xs text-gray-400 mt-3">
+                <div className="text-xs text-muted-foreground mt-3">
                   Updated: {convertToIST(position.timestamp)}
                 </div>
               )}
             </div>
           )}
-
-          {/* System Stats */}
-          <div className="bg-slate-700 rounded-lg p-6 shadow-lg">
-            <h2 className="text-2xl font-bold text-white mb-4">📊 System Stats</h2>
-            <div className="space-y-3">
-              <div className="p-3 bg-slate-600 rounded">
-                <div className="text-sm text-gray-400">Active Gateways</div>
-                <div className="text-2xl font-bold text-green-400">{gateways.length}</div>
-              </div>
-              <div className="p-3 bg-slate-600 rounded">
-                <div className="text-sm text-gray-400">RSSI Readings (Last Hour)</div>
-                <div className="text-2xl font-bold text-blue-400">{rssiHistory.length}</div>
-              </div>
-              <div className="p-3 bg-slate-600 rounded">
-                <div className="text-sm text-gray-400">Refresh Interval</div>
-                <div className="text-2xl font-bold text-purple-400">{refreshInterval / 1000}s</div>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* RSSI History */}
-        <div className="bg-slate-700 rounded-lg p-6 shadow-lg">
+        <div className="bg-card border border-border rounded-lg p-6 shadow-lg">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-bold text-white">📊 RSSI History</h2>
+            <h2 className="text-2xl font-bold text-foreground">📊 RSSI History</h2>
             <select
               value={refreshInterval}
               onChange={(e) => setRefreshInterval(Number(e.target.value))}
-              className="px-3 py-1 bg-slate-600 text-white rounded text-sm"
+              className="px-3 py-1 bg-muted text-foreground rounded text-sm border border-border focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
+              <option value={1000}>1s</option>
               <option value={2000}>2s</option>
-              <option value={3000}>3s (Default)</option>
               <option value={5000}>5s</option>
-              <option value={10000}>10s</option>
             </select>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="border-b border-slate-500">
-                <tr className="text-gray-400">
+              <thead className="border-b border-border">
+                <tr className="text-muted-foreground">
                   <th className="text-left py-2 px-3">Gateway</th>
                   <th className="text-left py-2 px-3">RSSI (dBm)</th>
                   <th className="text-left py-2 px-3">Signal</th>
@@ -604,11 +445,11 @@ export default function RSSIMonitoring() {
                   <th className="text-left py-2 px-3">Timestamp</th>
                 </tr>
               </thead>
-              <tbody className="text-white">
+              <tbody className="text-foreground">
                 {rssiHistory.slice(0, 20).map((reading, idx) => {
                   const status = getSignalStatus(reading.rssi);
                   return (
-                    <tr key={idx} className="border-b border-slate-600 hover:bg-slate-600">
+                    <tr key={idx} className="border-b border-border hover:bg-muted/50">
                       <td className="py-2 px-3 font-mono text-sm">
                         {reading.gateway_id}
                       </td>
@@ -620,10 +461,10 @@ export default function RSSIMonitoring() {
                           {status.label}
                         </span>
                       </td>
-                      <td className="py-2 px-3 text-gray-300">
+                      <td className="py-2 px-3 text-muted-foreground">
                         {reading.forklift_id}
                       </td>
-                      <td className="py-2 px-3 text-xs text-gray-400">
+                      <td className="py-2 px-3 text-xs text-muted-foreground">
                         {convertToIST(reading.timestamp)}
                       </td>
                     </tr>
@@ -632,7 +473,7 @@ export default function RSSIMonitoring() {
               </tbody>
             </table>
           </div>
-          <div className="text-xs text-gray-400 mt-2">
+          <div className="text-xs text-muted-foreground mt-2">
             Showing latest 20 readings • Total: {rssiHistory.length}
           </div>
         </div>
@@ -640,25 +481,25 @@ export default function RSSIMonitoring() {
         {/* Gateway Management Section */}
         <div id="gateway-management" className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-12">
           {/* Add/Update Gateway Form */}
-          <div className="bg-slate-700 rounded-lg p-6 shadow-lg">
-            <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-              <Plus className="w-6 h-6" /> Add/Update Gateway
+          <div className="bg-card border border-border rounded-lg p-6 shadow-lg">
+            <h2 className="text-2xl font-bold text-foreground mb-6 flex items-center gap-2">
+              <Plus className="w-6 h-6" /> Add Gateway
             </h2>
 
             {gatewayError && (
-              <div className="p-3 bg-red-500/20 border border-red-500 rounded-lg mb-4 text-red-300 text-sm">
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg mb-4 text-red-600 dark:text-red-400 text-sm">
                 ⚠️ {gatewayError}
               </div>
             )}
             {gatewaySuccess && (
-              <div className="p-3 bg-green-500/20 border border-green-500 rounded-lg mb-4 text-green-300 text-sm">
+              <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg mb-4 text-green-600 dark:text-green-400 text-sm">
                 ✅ {gatewaySuccess}
               </div>
             )}
 
             <form onSubmit={handleAddGateway} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Gateway Name *
                 </label>
                 <input
@@ -668,14 +509,14 @@ export default function RSSIMonitoring() {
                   onChange={(e) =>
                     setGatewayFormData({ ...gatewayFormData, name: e.target.value })
                   }
-                  className="w-full px-3 py-2 bg-slate-600 text-white rounded-lg border border-slate-500 focus:border-blue-500 outline-none"
+                  className="w-full px-3 py-2 bg-background text-foreground rounded-lg border border-border focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
                   disabled={gatewaySubmitting}
                 />
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">
+                  <label className="block text-xs font-medium text-foreground mb-1">
                     X Position (m) *
                   </label>
                   <input
@@ -686,12 +527,12 @@ export default function RSSIMonitoring() {
                     onChange={(e) =>
                       setGatewayFormData({ ...gatewayFormData, location_x: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full px-3 py-2 bg-slate-600 text-white rounded-lg border border-slate-500 focus:border-blue-500 outline-none"
+                    className="w-full px-3 py-2 bg-background text-foreground rounded-lg border border-border focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
                     disabled={gatewaySubmitting}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">
+                  <label className="block text-xs font-medium text-foreground mb-1">
                     Y Position (m) *
                   </label>
                   <input
@@ -702,12 +543,12 @@ export default function RSSIMonitoring() {
                     onChange={(e) =>
                       setGatewayFormData({ ...gatewayFormData, location_y: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full px-3 py-2 bg-slate-600 text-white rounded-lg border border-slate-500 focus:border-blue-500 outline-none"
+                    className="w-full px-3 py-2 bg-background text-foreground rounded-lg border border-border focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
                     disabled={gatewaySubmitting}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">
+                  <label className="block text-xs font-medium text-foreground mb-1">
                     Z Position (m)
                   </label>
                   <input
@@ -718,7 +559,7 @@ export default function RSSIMonitoring() {
                     onChange={(e) =>
                       setGatewayFormData({ ...gatewayFormData, location_z: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full px-3 py-2 bg-slate-600 text-white rounded-lg border border-slate-500 focus:border-blue-500 outline-none"
+                    className="w-full px-3 py-2 bg-background text-foreground rounded-lg border border-border focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
                     disabled={gatewaySubmitting}
                   />
                 </div>
@@ -727,36 +568,36 @@ export default function RSSIMonitoring() {
               <button
                 type="submit"
                 disabled={gatewaySubmitting || !gatewayFormData.name.trim()}
-                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded-lg font-medium transition"
+                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 disabled:bg-muted disabled:text-muted-foreground text-white rounded-lg font-medium transition"
               >
                 {gatewaySubmitting ? 'Saving...' : '💾 Save Gateway'}
               </button>
             </form>
 
-            <div className="mt-6 p-4 bg-slate-600/50 rounded-lg text-xs text-gray-300">
-              <p className="font-semibold mb-2">💡 How to use:</p>
+            <div className="mt-6 p-4 bg-muted/50 rounded-lg text-xs text-muted-foreground">
+              <p className="font-semibold mb-2 text-foreground">💡 How to use:</p>
               <ul className="list-disc list-inside space-y-1">
-                <li>Enter gateway name (must be unique)</li>
+                <li>Enter a unique gateway name (e.g., office_phone)</li>
                 <li>Set X, Y coordinates (required for trilateration)</li>
                 <li>Set Z height (optional, default 0)</li>
-                <li>Same name = update position, new name = create gateway</li>
+                <li>To edit a gateway's position, click the edit icon on its card</li>
               </ul>
             </div>
           </div>
 
           {/* Configured Gateways List */}
-          <div className="bg-slate-700 rounded-lg p-6 shadow-lg">
+          <div className="bg-card border border-border rounded-lg p-6 shadow-lg">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+              <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
                 <Wifi className="w-6 h-6" /> Configured Gateways
               </h2>
-              <Badge variant="outline" className="bg-slate-600 text-white border-slate-500">
+              <Badge variant="outline" className="bg-muted text-foreground border-border">
                 {gateways.length} gateway(s)
               </Badge>
             </div>
 
             {gateways.length === 0 ? (
-              <div className="text-center py-8 text-gray-400">
+              <div className="text-center py-8 text-muted-foreground">
                 <Wifi className="w-12 h-12 mx-auto mb-3 opacity-50" />
                 <p>No gateways configured yet</p>
                 <p className="text-xs mt-2">Add one using the form on the left</p>
@@ -764,17 +605,17 @@ export default function RSSIMonitoring() {
             ) : (
               <div className="space-y-3 max-h-96 overflow-y-auto">
                 {gateways.map((gateway) => (
-                  <div key={gateway.gateway_id} className="bg-slate-600 rounded-lg p-4">
+                  <div key={gateway.gateway_id} className="bg-muted/50 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h3 className="font-semibold text-white">{gateway.name}</h3>
-                        <p className="text-xs text-gray-400">{gateway.gateway_id}</p>
+                        <h3 className="font-semibold text-foreground">{gateway.name}</h3>
+                        <p className="text-xs text-muted-foreground">{gateway.gateway_id}</p>
                       </div>
                       <Badge
                         className={`${
                           gateway.is_active
-                            ? 'bg-green-600 text-white'
-                            : 'bg-gray-600 text-gray-300'
+                            ? 'bg-green-500/20 text-green-600 dark:text-green-400 border-green-500/30'
+                            : 'bg-muted text-muted-foreground border-border'
                         }`}
                       >
                         {gateway.is_active ? '✓ Active' : 'Inactive'}
@@ -783,27 +624,27 @@ export default function RSSIMonitoring() {
 
                     <div className="grid grid-cols-3 gap-2 text-sm mb-2">
                       <div className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-blue-400" />
-                        <span className="text-gray-300">
-                          X: <span className="font-mono text-blue-300">{gateway.location.x.toFixed(2)}m</span>
+                        <MapPin className="w-3 h-3 text-blue-500 dark:text-blue-400" />
+                        <span className="text-muted-foreground">
+                          X: <span className="font-mono text-blue-600 dark:text-blue-400">{gateway.location.x.toFixed(2)}m</span>
                         </span>
                       </div>
                       <div className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-green-400" />
-                        <span className="text-gray-300">
-                          Y: <span className="font-mono text-green-300">{gateway.location.y.toFixed(2)}m</span>
+                        <MapPin className="w-3 h-3 text-green-500 dark:text-green-400" />
+                        <span className="text-muted-foreground">
+                          Y: <span className="font-mono text-green-600 dark:text-green-400">{gateway.location.y.toFixed(2)}m</span>
                         </span>
                       </div>
                       <div className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-purple-400" />
-                        <span className="text-gray-300">
-                          Z: <span className="font-mono text-purple-300">{gateway.location.z.toFixed(2)}m</span>
+                        <MapPin className="w-3 h-3 text-purple-500 dark:text-purple-400" />
+                        <span className="text-muted-foreground">
+                          Z: <span className="font-mono text-purple-600 dark:text-purple-400">{gateway.location.z.toFixed(2)}m</span>
                         </span>
                       </div>
                     </div>
 
                     {gateway.last_seen && (
-                      <div className="text-xs text-gray-400">
+                      <div className="text-xs text-muted-foreground">
                         Last seen: {convertToIST(gateway.last_seen)}
                       </div>
                     )}
@@ -814,6 +655,102 @@ export default function RSSIMonitoring() {
           </div>
         </div>
       </div>
+
+      {/* Edit Gateway Position Modal */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-5 h-5" />
+              Edit Gateway Position
+            </DialogTitle>
+            <DialogDescription>
+              Update the position coordinates for <strong>{editModalData.name}</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleUpdateGatewayPosition} className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  X Position (m)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={editModalData.location_x}
+                  onChange={(e) =>
+                    setEditModalData({ ...editModalData, location_x: parseFloat(e.target.value) || 0 })
+                  }
+                  className="w-full px-3 py-2 bg-background text-foreground rounded-lg border border-border focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                  disabled={gatewaySubmitting}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Y Position (m)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={editModalData.location_y}
+                  onChange={(e) =>
+                    setEditModalData({ ...editModalData, location_y: parseFloat(e.target.value) || 0 })
+                  }
+                  className="w-full px-3 py-2 bg-background text-foreground rounded-lg border border-border focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                  disabled={gatewaySubmitting}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Z Position (m)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={editModalData.location_z}
+                  onChange={(e) =>
+                    setEditModalData({ ...editModalData, location_z: parseFloat(e.target.value) || 0 })
+                  }
+                  className="w-full px-3 py-2 bg-background text-foreground rounded-lg border border-border focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                  disabled={gatewaySubmitting}
+                  required
+                />
+              </div>
+            </div>
+
+            {gatewayError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-600 dark:text-red-400 text-sm">
+                ⚠️ {gatewayError}
+              </div>
+            )}
+
+            <DialogFooter>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditModalOpen(false);
+                  setEditingGatewayId(null);
+                  setGatewayError(null);
+                }}
+                className="px-4 py-2 bg-muted hover:bg-muted/80 text-foreground rounded-lg font-medium transition"
+                disabled={gatewaySubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={gatewaySubmitting}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 disabled:bg-muted disabled:text-muted-foreground text-white rounded-lg font-medium transition"
+              >
+                {gatewaySubmitting ? 'Updating...' : '✓ Update Position'}
+              </button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

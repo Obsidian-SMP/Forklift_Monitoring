@@ -92,7 +92,7 @@ GATEWAYS = GATEWAYS_4  # Default: 4 gateways (optimal)
 # IMPORTANT: Calibrate TX_POWER for your specific Arduino Nano 33 IoT beacon!
 # See calibration guide in PATH_TRACKING_RSSI_CRITICAL_ANALYSIS.md
 RSSI_CONFIG = {
-    "TX_POWER": -72.0,  # Calibrated on 2026-02-05
+    "TX_POWER": -45.7,  # Calibrated on 2026-02-05
     "PATH_LOSS_N_LOS": 1.71,  # Calibrated
     "PATH_LOSS_N_NLOS": 3.5,  # Non-line-of-sight (through obstacles)
     "LOS_THRESHOLD": -70,  # RSSI threshold for LOS detection (dBm)

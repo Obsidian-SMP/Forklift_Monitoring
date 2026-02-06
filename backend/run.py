@@ -28,7 +28,7 @@ def setup_models():
 
 # Cleanup old images every 2 minutes
 def cleanup_old_images():
-    """Delete images older than 2 minutes to save storage (except AI detected objects)"""
+    """Delete images older than 2 minutes to save storage (except AI detected objects and latest image per forklift)"""
     while True:
         try:
             time.sleep(120)  # Wait 2 minutes
@@ -37,30 +37,34 @@ def cleanup_old_images():
                 current_time = time.time()
                 deleted_count = 0
                 kept_count = 0
+                
+                # Find latest image per forklift to preserve for camera feed
+                forklift_latest = {}  # {forklift_id: (filepath, mtime)}
+                for filename in os.listdir(upload_folder):
+                    filepath = os.path.join(upload_folder, filename)
+                    if os.path.isfile(filepath) and filename.endswith('.jpg'):
+                        # Extract forklift_id from filename (format: forklift_1_20250205_123456.jpg)
+                        if '_' in filename:
+                            forklift_id = filename.split('_')[0] + '_' + filename.split('_')[1]
+                            if forklift_id.startswith('forklift_'):
+                                mtime = os.path.getmtime(filepath)
+                                if forklift_id not in forklift_latest or mtime > forklift_latest[forklift_id][1]:
+                                    forklift_latest[forklift_id] = (filepath, mtime)
+                
+                # Now process all files
                 for filename in os.listdir(upload_folder):
                     filepath = os.path.join(upload_folder, filename)
                     if os.path.isfile(filepath):
-                        # Skip files with object names - these are AI detections (YOLO 80 classes)
-                        # Check if filename starts with any object type followed by dash and number
-                        # This matches patterns like: "dog-001_...", "cell phone-023_...", etc.
+                        # Skip files with object names - these are AI detections
                         is_ai_detection = False
                         
-                        # All YOLO class names from coco.names
-                        yolo_classes = [
-                            'person', 'bicycle', 'car', 'motorbike', 'aeroplane', 'bus', 'train', 'truck', 'boat',
-                            'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat',
-                            'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack',
-                            'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball',
-                            'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket',
-                            'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
-                            'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake',
-                            'chair', 'sofa', 'pottedplant', 'bed', 'diningtable', 'toilet', 'tvmonitor', 'laptop',
-                            'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink',
-                            'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+                        # Custom model classes (your trained model's classes)
+                        custom_classes = [
+                            'black_box', 'blue_box', 'bottle', 'ponds', 'red_box'
                         ]
                         
                         # Check if filename starts with "classname-" pattern
-                        for class_name in yolo_classes:
+                        for class_name in custom_classes:
                             if filename.startswith(f"{class_name}-"):
                                 is_ai_detection = True
                                 kept_count += 1
@@ -69,54 +73,44 @@ def cleanup_old_images():
                         if is_ai_detection:
                             continue  # Don't delete AI detected objects
                         
+                        # Check if this is the latest image for any forklift (preserve for camera feed)
+                        is_latest = False
+                        for forklift_id, (latest_filepath, _) in forklift_latest.items():
+                            if filepath == latest_filepath:
+                                is_latest = True
+                                kept_count += 1
+                                break
+                        
+                        if is_latest:
+                            continue  # Don't delete latest image per forklift
+                        
                         # Delete regular camera frames older than 2 minutes (120 seconds)
                         if current_time - os.path.getmtime(filepath) > 120:
                             os.remove(filepath)
                             deleted_count += 1
                             
                 if deleted_count > 0 or kept_count > 0:
-                    print(f"[CLEANUP] Deleted {deleted_count} old camera frames (>2 min), kept {kept_count} AI detections")
+                    print(f"[CLEANUP] Deleted {deleted_count} old camera frames (>2 min), kept {kept_count} important images (AI detections + latest per forklift)")
         except Exception as e:
             print(f"[CLEANUP] Error: {e}")
-
-# Save DHT readings to database every 60 seconds
-def save_dht_readings():
-    """Background thread to save DHT readings to database for historical data"""
-    from app.services.dht_sensor import get_dht_reading
-    from app.models import WarehouseSensor
-    
-    while True:
-        try:
-            reading = get_dht_reading()
-            
-            if reading and reading.get('status') in ['success', 'unavailable']:
-                WarehouseSensor.create(
-                    temperature=reading['temperature'],
-                    humidity=reading['humidity'],
-                    sensor_id='dht11_gpio21'
-                )
-                print(f"[DHT] Saved: {reading['temperature']}°C, {reading['humidity']}%")
-            
-            time.sleep(60)  # Wait 1 minute before next reading
-                
-        except Exception as e:
-            print(f"[DHT] Save error: {e}")
-            time.sleep(60)  # Wait before retry on error
 
 app = create_app()
 
 # Initialize AI worker
 def init_ai():
-    """Initialize AI detection worker"""
+    """Initialize AI detection worker with custom model"""
     try:
         from app.services.ai_worker import init_ai_worker
         worker = init_ai_worker(app)
         if worker and worker.model:
             print("[AI] Background AI detection worker initialized")
+            print(f"    Model: {worker.model_type} ({len(worker.classes)} classes)")
         else:
-            print("[AI] AI detection disabled (YOLO not available)")
+            print("[AI] AI detection disabled (No YOLO model available)")
     except Exception as e:
         print(f"[AI] Could not initialize AI worker: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == '__main__':
     print("\n" + "="*60)
@@ -131,7 +125,7 @@ if __name__ == '__main__':
     print(f"MQTT Broker: {Config.MQTT_BROKER}:{Config.MQTT_PORT}")
     print(f"Database: {Config.DATABASE}")
     print(f"Upload Folder: {Config.UPLOAD_FOLDER}")
-    print(f"YOLO Model: {Config.YOLO_MODEL}")
+    print(f"YOLO Model: {Config.YOLO_MODEL} (custom trained)")
     print(f"AI Confidence: {Config.AI_CONFIDENCE}")
     print(f"AI Input Size: {Config.AI_INPUT_SIZE}x{Config.AI_INPUT_SIZE}")
     print("\n📡 Active Services:")
@@ -139,7 +133,7 @@ if __name__ == '__main__':
     print("  ✓ WebSocket (SocketIO)")
     print("  ✓ MQTT Client")
     print("  ✓ ESP32-CAM Image Upload")
-    print("  ✓ AI Detection (optimized: every frame, 65% confidence, 416px)")
+    print("  ✓ AI Object Detection (Custom YOLO model, optimized for RPi)")
     print("  ✓ Image Cleanup (every 2 minutes)")
     print("  ✓ BLE/WiFi Position Tracking")
     print("  ✓ DHT11 Temperature/Humidity")
@@ -151,15 +145,18 @@ if __name__ == '__main__':
     # Initialize AI worker
     init_ai()
     
+    # Start DHT sensor background service
+    try:
+        from app.services.dht_background_service import init_dht_background_service
+        init_dht_background_service(app)
+        print("[DHT] DHT sensor background service started (reads every 60 seconds)\n")
+    except Exception as e:
+        print(f"[DHT] Warning: Could not start DHT background service: {e}\n")
+    
     # Start image cleanup thread
     cleanup_thread = threading.Thread(target=cleanup_old_images, daemon=True)
     cleanup_thread.start()
     print("[CLEANUP] Image cleanup task started (runs every 2 minutes)\n")
-    
-    # Start DHT database storage thread
-    dht_thread = threading.Thread(target=save_dht_readings, daemon=True)
-    dht_thread.start()
-    print("[DHT] Database storage task started (saves every 60 seconds)\n")
     
     # Periodic garbage collection for RPi memory management
     def periodic_gc():

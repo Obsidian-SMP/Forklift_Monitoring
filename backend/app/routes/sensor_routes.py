@@ -1,5 +1,8 @@
 from flask import Blueprint, jsonify, request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+# IST timezone (UTC+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
 
 from app.models import WarehouseSensor
 
@@ -25,11 +28,18 @@ def get_environment_history():
         # Get time range from query params
         hours = int(request.args.get('hours', 24))
         limit = int(request.args.get('limit', 1000))  # Add limit to prevent loading too much data
-        start_time = datetime.utcnow() - timedelta(hours=hours)
+        
+        # Calculate start time - use timezone-naive datetime for SQLite compatibility
+        # SQLite stores timestamps as strings, so we need to match the format
+        current_time = datetime.now(IST)
+        start_time = current_time - timedelta(hours=hours)
+        
+        # Remove timezone info for comparison (SQLite stores as text without explicit timezone)
+        start_time_naive = start_time.replace(tzinfo=None)
         
         # Convert to list first to avoid multiple queries
         sensors = list(WarehouseSensor.select().where(
-            WarehouseSensor.timestamp >= start_time
+            WarehouseSensor.timestamp >= start_time_naive
         ).order_by(WarehouseSensor.timestamp.desc()).limit(limit))
         
         return jsonify({
@@ -37,6 +47,9 @@ def get_environment_history():
             'data': [sensor.to_dict() for sensor in sensors]
         }), 200
     except Exception as e:
+        import traceback
+        print(f"Error in get_environment_history: {e}")
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
@@ -45,10 +58,12 @@ def get_environment_stats():
     """Get statistical summary of environment data"""
     try:
         hours = int(request.args.get('hours', 24))
-        start_time = datetime.utcnow() - timedelta(hours=hours)
+        current_time = datetime.now(IST)
+        start_time = current_time - timedelta(hours=hours)
+        start_time_naive = start_time.replace(tzinfo=None)
         
         sensors = list(WarehouseSensor.select().where(
-            WarehouseSensor.timestamp >= start_time
+            WarehouseSensor.timestamp >= start_time_naive
         ))
         
         if len(sensors) == 0:

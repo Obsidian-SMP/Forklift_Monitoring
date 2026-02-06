@@ -9,7 +9,6 @@ import ForkliftMonitor from "./pages/ForkliftMonitor";
 import InventoryManagement from "./pages/InventoryManagement";
 import PathTracking from "./pages/PathTracking";
 import RealAlerts from "./pages/RealAlerts";
-import Settings from "./pages/Settings";
 import RSSIMonitoring from "./pages/RSSIMonitoring";
 import WarehouseLayoutReal from "./pages/WarehouseLayoutReal";
 import NotFound from "./pages/NotFound";
@@ -39,7 +38,6 @@ const App = () => (
           <Route path="/inventory" element={<InventoryManagement />} />
           <Route path="/tracking" element={<PathTracking />} />
           <Route path="/alerts" element={<RealAlerts />} />
-          <Route path="/settings" element={<Settings />} />
           <Route path="/rssi" element={<RSSIMonitoring />} />
           <Route path="/warehouse" element={<WarehouseLayoutReal />} />
           <Route path="*" element={<NotFound />} />

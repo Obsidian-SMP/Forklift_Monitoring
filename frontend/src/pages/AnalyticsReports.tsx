@@ -82,7 +82,7 @@ export default function AnalyticsReports() {
   }, [] as typeof mockAnalyticsData);
 
   const chartData = aggregatedByDate.map(d => ({
-    date: new Date(d.date).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }),
+    date: new Date(d.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric' }),
     distance: Math.round(d.distanceTraveled / 1000), // km
     activeTime: Number(d.activeTime.toFixed(1)),
     idleTime: Number(d.idleTime.toFixed(1)),

@@ -34,30 +34,22 @@ class Config:
     # Image Processing
     UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'uploads/images')
     MAX_CONTENT_LENGTH = int(os.getenv('MAX_CONTENT_LENGTH', 16 * 1024 * 1024))
-    # Note: YOLOv11n requires PyTorch 2.0+, fallback to yolov8n.pt on incompatible systems
-    YOLO_MODEL = os.getenv('YOLO_MODEL', 'yolov8n.pt')
+    
+    # YOLO Model Configuration
+    YOLO_MODEL = os.getenv('YOLO_MODEL', 'my_model.pt')  # Custom trained model
     
     # AI Detection Settings - Optimized for Raspberry Pi
-    AI_PROCESS_EVERY_N = int(os.getenv('AI_PROCESS_EVERY_N', 1))  # Process every image (was 3)
-    AI_CONFIDENCE = float(os.getenv('AI_CONFIDENCE', 0.65))  # Confidence threshold (was 0.4)
-    AI_INPUT_SIZE = int(os.getenv('AI_INPUT_SIZE', 416))  # Input image size (was 640)
+    AI_PROCESS_EVERY_N = int(os.getenv('AI_PROCESS_EVERY_N', 1))  # Process every image (set to 1 for real-time)
+    AI_CONFIDENCE = float(os.getenv('AI_CONFIDENCE', 0.65))  # Confidence threshold
+    AI_INPUT_SIZE = int(os.getenv('AI_INPUT_SIZE', 416))  # Input image size
     AI_IOU_THRESHOLD = float(os.getenv('AI_IOU_THRESHOLD', 0.45))  # NMS IOU threshold
+    AI_QUEUE_PRIORITY = os.getenv('AI_QUEUE_PRIORITY', 'latest')  # 'latest' = drop old frames, 'all' = process all
     
-    # Warehouse prototype detection - Small everyday objects
-    WAREHOUSE_CLASSES = [
-        67,  # cell phone (workers' devices)
-        63,  # laptop (office equipment)
-        39,  # bottle (containers, supplies)
-        73,  # book (manuals, documents)
-        62,  # keyboard (equipment)
-        64,  # mouse (peripherals)
-        76,  # scissors (tools)
-        24,  # backpack (personal items)
-        28,  # suitcase (storage, luggage)
-        0,   # person (worker tracking)
-    ]
-    # Note: COCO dataset does NOT include "box" or "package" class
-    # For cardboard box detection, custom model training is required
+    # Image Compression for faster transfer
+    IMAGE_COMPRESSION_QUALITY = int(os.getenv('IMAGE_COMPRESSION_QUALITY', 75))  # 75% quality = ~70% size reduction
+    
+    # Class filtering - Empty list = detect all classes from custom model
+    ALLOWED_CLASSES = []
     
     # Alert Thresholds
     TEMP_MIN = float(os.getenv('TEMP_MIN', 15))

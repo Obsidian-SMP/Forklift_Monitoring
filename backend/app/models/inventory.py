@@ -28,6 +28,8 @@ class Inventory(Model):
     
     # Status
     status = CharField(default='in_stock', index=True)  # in_stock, out_of_stock, in_transit, dispatched
+    placed_at = DateTimeField(null=True)  # Timestamp when item was placed in warehouse
+    dispatched_at = DateTimeField(null=True)  # Timestamp when item was dispatched
     
     class Meta:
         database = db
@@ -54,7 +56,9 @@ class Inventory(Model):
             'last_updated': self.last_updated.isoformat(),
             'image_url': self.image_url,
             'description': self.description,
-            'status': self.status
+            'status': self.status,
+            'placed_at': self.placed_at.isoformat() if self.placed_at else None,
+            'dispatched_at': self.dispatched_at.isoformat() if self.dispatched_at else None
         }
 
 
@@ -119,6 +123,7 @@ class DetectedObject(Model):
     """Model for objects detected via camera in the warehouse"""
     
     object_id = CharField(unique=True, index=True)  # object-001, object-002, etc.
+    object_type = CharField(null=True, index=True)  # black_box, blue_box, red_box
     forklift_id = CharField(null=True, index=True)
     camera_id = CharField(null=True)
     
@@ -136,8 +141,8 @@ class DetectedObject(Model):
     location_mismatch = CharField(null=True)  # User-marked mismatch notes
     is_mismatch_flagged = CharField(default='false')  # true/false string
     
-    # Inventory link
-    inventory_item = ForeignKeyField(Inventory, null=True, backref='detected_objects')
+    # Inventory link (null=True, on_delete='SET NULL' so deleting inventory doesn't delete detections)
+    inventory_item = ForeignKeyField(Inventory, null=True, backref='detected_objects', on_delete='SET NULL')
     
     # Metadata
     confidence_score = FloatField(null=True)
@@ -151,6 +156,7 @@ class DetectedObject(Model):
         return {
             'id': self.id,
             'object_id': self.object_id,
+            'object_type': self.object_type,
             'forklift_id': self.forklift_id,
             'camera_id': self.camera_id,
             'detection_timestamp': self.detection_timestamp.isoformat(),

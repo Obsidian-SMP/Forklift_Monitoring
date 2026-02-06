@@ -150,7 +150,7 @@ export default function WarehouseLayout() {
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading warehouse layout...</p>
+          <p className="text-muted-foreground">Loading warehouse layout...</p>
         </div>
       </div>
     );
@@ -198,7 +198,7 @@ export default function WarehouseLayout() {
         </div>
 
         {error && (
-          <div className="p-4 bg-red-500/20 border border-red-500 rounded-lg mb-6 text-red-300">
+          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg mb-6 text-red-600 dark:text-red-300">
             {error}
           </div>
         )}
@@ -380,7 +380,7 @@ export default function WarehouseLayout() {
                     </div>
                     {gateway.last_seen && (
                       <div className="text-xs text-gray-400 mt-1">
-                        Seen: {new Date(gateway.last_seen).toLocaleTimeString()}
+                        Seen: {new Date(gateway.last_seen).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
                       </div>
                     )}
                   </div>
@@ -409,7 +409,7 @@ export default function WarehouseLayout() {
                   )}
                   {position.timestamp && (
                     <div className="text-xs text-gray-400 mt-2">
-                      {new Date(position.timestamp).toLocaleTimeString()}
+                      {new Date(position.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
                     </div>
                   )}
                 </div>
