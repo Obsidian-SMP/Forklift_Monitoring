@@ -454,7 +454,7 @@ export default function InventoryManagement() {
             className={`px-4 py-2 font-medium border-b-2 ${
               activeTab === 'stats'
                 ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             Statistics
@@ -464,7 +464,7 @@ export default function InventoryManagement() {
             className={`px-4 py-2 font-medium border-b-2 ${
               activeTab === 'objects'
                 ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             Detected Objects ({detectedObjects.length})
@@ -474,7 +474,7 @@ export default function InventoryManagement() {
             className={`px-4 py-2 font-medium border-b-2 ${
               activeTab === 'inventory'
                 ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             Inventory Items ({inventoryItems.length})
@@ -748,8 +748,8 @@ export default function InventoryManagement() {
                     <p className="text-sm text-muted-foreground mt-2">Blue Boxes Detected</p>
                   </div>
                   <div className="text-center p-4 bg-slate-500/10 border border-slate-500/30 rounded-lg">
-                    <div className="text-3xl font-bold text-white">{stats.detection_statistics.black_boxes_detected}</div>
-                    <p className="text-sm text-white/80 mt-2">Black Boxes Detected</p>
+                    <div className="text-3xl font-bold text-slate-700 dark:text-slate-300">{stats.detection_statistics.black_boxes_detected}</div>
+                    <p className="text-sm text-muted-foreground mt-2">Black Boxes Detected</p>
                   </div>
                 </div>
               </CardContent>
@@ -765,7 +765,7 @@ export default function InventoryManagement() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                   <div className="text-center p-4 border-2 border-blue-200 rounded-lg">
                     <div className="text-3xl font-bold text-blue-600">{stats.warehouse_statistics.total_in_warehouse}</div>
-                    <p className="text-sm text-gray-600 mt-2">Total Boxes in Warehouse</p>
+                    <p className="text-sm text-muted-foreground mt-2">Total Boxes in Warehouse</p>
                   </div>
                   <div className="text-center p-4 border-2 border-red-500/30 bg-red-500/10 rounded-lg">
                     <div className="text-3xl font-bold text-red-600 dark:text-red-400">{stats.warehouse_statistics.red_boxes_in_warehouse}</div>
@@ -924,7 +924,7 @@ export default function InventoryManagement() {
                     <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-semibold ${
                       selectedObject.object_type === 'red_box' ? 'bg-red-100 text-red-800' :
                       selectedObject.object_type === 'blue_box' ? 'bg-blue-100 text-blue-800' :
-                      selectedObject.object_type === 'black_box' ? 'bg-gray-800 text-white' :
+                      selectedObject.object_type === 'black_box' ? 'bg-slate-500/20 text-slate-700 dark:text-slate-300' :
                       'bg-gray-100 text-gray-800'
                     }`}>
                       {selectedObject.object_type?.replace('_', ' ').toUpperCase()}
