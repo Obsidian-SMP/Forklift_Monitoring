@@ -229,11 +229,102 @@ class NotificationService:
         
         # Format alert message
         timestamp = alert_data.get('timestamp', datetime.utcnow().isoformat())
+        
+        # Plain text version for SMS/WhatsApp
         formatted_message = f"🚨 Warehouse Alert\n\n" \
                           f"Type: {alert_type}\n" \
                           f"Severity: {severity.upper()}\n" \
                           f"Message: {message}\n" \
                           f"Time: {timestamp}\n"
+        
+        # HTML email version with better formatting
+        severity_colors = {
+            'info': '#3B82F6',      # Blue
+            'low': '#10B981',       # Green
+            'medium': '#F59E0B',    # Amber
+            'high': '#EF4444',      # Red
+            'critical': '#DC2626'   # Dark Red
+        }
+        severity_color = severity_colors.get(severity.lower(), '#6B7280')
+        
+        html_email = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 20px;">
+                <tr>
+                    <td align="center">
+                        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden;">
+                            <!-- Header -->
+                            <tr>
+                                <td style="background-color: {severity_color}; padding: 24px; text-align: center;">
+                                    <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">
+                                        🚨 Warehouse Alert
+                                    </h1>
+                                </td>
+                            </tr>
+                            
+                            <!-- Content -->
+                            <tr>
+                                <td style="padding: 32px;">
+                                    <table width="100%" cellpadding="0" cellspacing="0">
+                                        <tr>
+                                            <td style="padding-bottom: 16px;">
+                                                <div style="background-color: {severity_color}; color: #ffffff; display: inline-block; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; text-transform: uppercase;">
+                                                    {severity.upper()}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        
+                                        <tr>
+                                            <td style="padding-bottom: 20px; border-bottom: 1px solid #e5e7eb;">
+                                                <p style="margin: 0; font-size: 18px; color: #111827; font-weight: 500;">
+                                                    {message}
+                                                </p>
+                                            </td>
+                                        </tr>
+                                        
+                                        <tr>
+                                            <td style="padding-top: 20px;">
+                                                <table width="100%" cellpadding="0" cellspacing="0">
+                                                    <tr>
+                                                        <td style="padding: 12px 0; border-bottom: 1px solid #f3f4f6;">
+                                                            <span style="color: #6B7280; font-size: 14px; font-weight: 500;">Alert Type:</span>
+                                                            <span style="color: #111827; font-size: 14px; float: right;">{alert_type}</span>
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td style="padding: 12px 0;">
+                                                            <span style="color: #6B7280; font-size: 14px; font-weight: 500;">Timestamp:</span>
+                                                            <span style="color: #111827; font-size: 14px; float: right;">{timestamp}</span>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                            
+                            <!-- Footer -->
+                            <tr>
+                                <td style="background-color: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+                                    <p style="margin: 0; color: #6B7280; font-size: 12px;">
+                                        Warehouse IoT Monitoring System
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </body>
+        </html>
+        """
         
         # Send through each channel
         if 'email' in channels_to_use:
@@ -243,8 +334,7 @@ class NotificationService:
                 
             for email in email_list[:3]:  # Limit to 3 recipients
                 subject = f"[{severity.upper()}] Warehouse Alert: {alert_type}"
-                email_body = formatted_message.replace('\n', '<br>') if True else formatted_message
-                result = self.send_email(email, subject, email_body, html=False)
+                result = self.send_email(email, subject, html_email, html=True)
                 results[f'email_{email}'] = result
         
         if 'whatsapp' in channels_to_use:
