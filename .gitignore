@@ -20,15 +20,6 @@ ENV/
 *.sqlite
 *.sqlite3
 
-# Logs
-logs/
-*.log
-
-# Uploaded files and images (AI detection output)
-uploads/
-backend/uploads/
-frontend/uploads/
-
 # Node modules
 node_modules/
 .pnp
@@ -61,11 +52,6 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
-
-# AI Model weights (already committed, ignore future changes)
-*.pt
-*.pth
-*.onnx
 
 # Frontend
 .cache/

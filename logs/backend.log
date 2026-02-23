@@ -1,0 +1,127 @@
+Unable to set line 21 to input
+INFO:app.services.mqtt_service:Connected to MQTT Broker!
+INFO:app.services.mqtt_service:MQTT client connected to localhost:1883
+INFO:app.services.mqtt_service:Subscribed to warehouse/forklift/+/data
+INFO:app.services.mqtt_service:Subscribed to warehouse/environment/data
+INFO:app.services.mqtt_service:Subscribed to warehouse/forklift/+/image
+INFO:app.services.mqtt_service:Subscribed to warehouse/forklift/+/gps
+INFO:app.services.mqtt_service:Subscribed to warehouse/forklift/+/vibration
+✓ SQLite database initialized: warehouse_iot.db
+✓ DHT11 sensor initialized on GPIO 21 (Physical pin 40)
+✓ DHT sensor initialized (GPIO pin 21)
+✓ DHT11 sensor initialized on GPIO 21 (Physical pin 40)
+✓ DHT sensor initialized (GPIO pin 21)
+🔄 Positioning loop started
+✅ Positioning engine started (update interval: 0.5s)
+
+============================================================
+🏭 WAREHOUSE IoT MONITORING SYSTEM (Raspberry Pi Optimized)
+============================================================
+
+============================================================
+ESP32-CAM Object Detection Setup (Optimized for Raspberry Pi)
+============================================================
+------------------------------------------------
+Checking AI Models in: /home/rpi/warehouse_iot/backend/app
+------------------------------------------------
+✓ yolov4-tiny.cfg already exists (3231 bytes)
+✓ yolov4-tiny.weights already exists (24251276 bytes)
+Downloading yolov3.txt... INFO:app.services.ai_worker:Loading YOLOv8n (optimized)...
+INFO:app.services.ai_worker:✓ yolov8n loaded with 80 classes
+INFO:app.services.ai_worker:✓ AI Worker initialized with yolov8n
+INFO:app.services.ai_worker:[AI] Starting worker thread...
+INFO:app.services.ai_worker:[AI] Detection processing loop started - waiting for images...
+INFO:app.services.ai_worker:✓ AI detection worker thread started
+INFO:app.services.ai_worker:✓ Worker thread confirmed alive
+✓ SQLite database initialized: /home/rpi/warehouse_iot/backend/warehouse_iot.db
+Total deleted: 0
+✓ Success!
+------------------------------------------------
+✓ All 3 model files ready!
+============================================================
+
+Server Address: http://0.0.0.0:5000
+MQTT Broker: localhost:1883
+Database: warehouse_iot.db
+Upload Folder: uploads/images
+YOLO Model: yolov8n.pt
+AI Confidence: 0.65
+AI Input Size: 416x416
+
+📡 Active Services:
+  ✓ REST API (Flask)
+  ✓ WebSocket (SocketIO)
+  ✓ MQTT Client
+  ✓ ESP32-CAM Image Upload
+  ✓ AI Detection (optimized: every frame, 65% confidence, 416px)
+  ✓ Image Cleanup (every 2 minutes)
+  ✓ BLE/WiFi Position Tracking
+  ✓ DHT11 Temperature/Humidity
+  ✓ Vibration Monitoring
+
+============================================================
+🚀 Server Starting...
+============================================================
+
+[AI] Initializing AI worker (optimized for Raspberry Pi)...
+[AI] ✓ yolov8n loaded with 80 classes (optimized for Raspberry Pi)
+[AI] ✓ yolov8n model loaded successfully with 80 classes
+[AI] ✓ Confidence threshold: 0.65
+[AI] ✓ Input size: 416x416
+[AI] ✓ Processing: every frame (optimized)
+[AI] Starting worker thread...
+[AI] Detection processing loop started - waiting for images...
+✓ AI detection worker thread started
+✓ Worker thread confirmed alive
+[AI] Background AI detection worker initialized
+[CLEANUP] Image cleanup task started (runs every 2 minutes)
+
+DHT read error: signal only works in main thread of the main interpreter
+[DHT] Database storage task started (saves every 60 seconds)
+
+ * Serving Flask app 'app'
+ * Debug mode: on
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://10.136.57.165:5000
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:werkzeug: * Restarting with stat
+Unable to set line 21 to input
+Unable to set line 21 to input
+INFO:app.services.mqtt_service:MQTT client connected to localhost:1883
+INFO:app.services.mqtt_service:Connected to MQTT Broker!
+INFO:app.services.mqtt_service:Subscribed to warehouse/forklift/+/data
+✓ SQLite database initialized: warehouse_iot.db
+✓ DHT11 sensor initialized on GPIO 21 (Physical pin 40)
+✓ DHT sensor initialized (GPIO pin 21)
+✓ DHT11 sensor initialized on GPIO 21 (Physical pin 40)
+✓ DHT sensor initialized (GPIO pin 21)
+🔄 Positioning loop started
+✅ Positioning engine started (update interval: 0.5s)
+
+============================================================
+🏭 WAREHOUSE IoT MONITORING SYSTEM (Raspberry Pi Optimized)
+============================================================
+
+============================================================
+ESP32-CAM Object Detection Setup (Optimized for Raspberry Pi)
+============================================================
+------------------------------------------------
+Checking AI Models in: /home/rpi/warehouse_iot/backend/app
+------------------------------------------------
+✓ yolov4-tiny.cfg already exists (3231 bytes)
+✓ yolov4-tiny.weights already exists (24251276 bytes)
+Downloading yolov3.txt... INFO:app.services.mqtt_service:Subscribed to warehouse/environment/data
+INFO:app.services.mqtt_service:Subscribed to warehouse/forklift/+/image
+INFO:app.services.mqtt_service:Subscribed to warehouse/forklift/+/gps
+INFO:app.services.mqtt_service:Subscribed to warehouse/forklift/+/vibration
+INFO:app.services.ai_worker:Loading YOLOv8n (optimized)...
+INFO:app.services.ai_worker:✓ yolov8n loaded with 80 classes
+INFO:app.services.ai_worker:✓ AI Worker initialized with yolov8n
+INFO:app.services.ai_worker:[AI] Starting worker thread...
+INFO:app.services.ai_worker:[AI] Detection processing loop started - waiting for images...
+INFO:app.services.ai_worker:✓ AI detection worker thread started
+INFO:app.services.ai_worker:✓ Worker thread confirmed alive
+WARNING:werkzeug: * Debugger is active!
+INFO:werkzeug: * Debugger PIN: 365-496-538
