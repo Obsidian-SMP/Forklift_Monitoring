@@ -36,7 +36,7 @@ export function TopStatusBar({ sidebarCollapsed }: TopStatusBarProps) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const navigate = useNavigate();
   
-  const API_BASE = 'http://10.136.57.165:5000/api';
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
   
   // Severity order for sorting (higher value = more important)
   const severityOrder: Record<string, number> = {

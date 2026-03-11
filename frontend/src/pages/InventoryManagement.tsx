@@ -112,7 +112,8 @@ export default function InventoryManagement() {
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [detectionMessage, setDetectionMessage] = useState<string | null>(null);
 
-  const API_BASE = 'http://10.136.57.165:5000/api';
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+  const API_HOST = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace('/api', '');
 
   // Shared detection logic - checks if object is new, adds to DB if needed
   const performDetection = async (position?: { x: number; y: number; z: number }) => {
@@ -554,7 +555,7 @@ export default function InventoryManagement() {
                           {obj.photo_url && (
                             <div className="bg-gray-100 rounded aspect-video flex items-center justify-center overflow-hidden">
                               <img 
-                                src={`http://10.136.57.165:5000${obj.photo_url}`}
+                                src={`${API_HOST}${obj.photo_url}`}
                                 alt={obj.object_id}
                                 className="w-full h-full object-contain"
                                 onError={(e) => {
@@ -647,7 +648,7 @@ export default function InventoryManagement() {
                           <TableCell>
                             {item.image_url ? (
                               <img 
-                                src={`http://10.136.57.165:5000${item.image_url}`}
+                                src={`${API_HOST}${item.image_url}`}
                                 alt={item.item_name}
                                 className="w-12 h-12 object-cover rounded"
                                 onError={(e) => {
@@ -944,7 +945,7 @@ export default function InventoryManagement() {
               {/* Object Image */}
               <div className="mb-6">
                 <img
-                  src={`http://10.136.57.165:5000${selectedObject.photo_url}`}
+                  src={`${API_HOST}${selectedObject.photo_url}`}
                   alt={selectedObject.object_id}
                   className="w-full h-64 object-contain bg-muted rounded"
                   onError={(e) => {

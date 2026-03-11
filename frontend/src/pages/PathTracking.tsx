@@ -6,6 +6,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { MapPin, Settings, AlertTriangle, Navigation } from 'lucide-react';
 import apiService from '@/services/api';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 // Convert UTC timestamp to Indian Standard Time (IST - UTC+5:30)
 function convertToIST(timestamp: string | number | Date): string {
   try {
@@ -211,7 +213,7 @@ export default function PathTracking() {
   useEffect(() => {
     const loadWarehouseMap = async () => {
       try {
-        const response = await fetch('http://10.136.57.165:5000/api/warehouse/map');
+        const response = await fetch(`${API_BASE}/warehouse/map`);
         if (response.ok) {
           const data = await response.json();
           setWarehouseImage(data.image_data);
@@ -235,7 +237,7 @@ export default function PathTracking() {
         
         // Save to database
         try {
-          const response = await fetch('http://10.136.57.165:5000/api/warehouse/map', {
+          const response = await fetch(`${API_BASE}/warehouse/map`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -261,7 +263,7 @@ export default function PathTracking() {
 
   const handleRemoveMap = async () => {
     try {
-      const response = await fetch('http://10.136.57.165:5000/api/warehouse/map', {
+      const response = await fetch(`${API_BASE}/warehouse/map`, {
         method: 'DELETE'
       });
       

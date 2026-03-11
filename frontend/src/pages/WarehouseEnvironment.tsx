@@ -67,7 +67,8 @@ export default function WarehouseEnvironment() {
         const hours = hoursMap[timeRange];
         
         // Fetch real historical data from database
-        const response = await fetch(`http://10.136.57.165:5000/api/sensors/environment/history?hours=${hours}`);
+        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        const response = await fetch(`${apiBase}/sensors/environment/history?hours=${hours}`);
         
         if (!response.ok) {
           throw new Error('Failed to fetch historical data');

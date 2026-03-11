@@ -13,6 +13,9 @@ interface ForkliftCamera {
   stream_url: string | null;
 }
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_HOST = API_BASE.replace('/api', '');
+
 export default function ForkliftMonitor() {
   const [forklifts, setForklifts] = useState<ForkliftCamera[]>([]);
   const [selectedForklift, setSelectedForklift] = useState<string>('forklift-001');
@@ -35,7 +38,7 @@ export default function ForkliftMonitor() {
   const fetchForkliftList = async () => {
     try {
       setError(null);
-      const response = await fetch('http://10.136.57.165:5000/api/camera/forklifts');
+      const response = await fetch(`${API_BASE}/camera/forklifts`);
       
       if (response.ok) {
         const data = await response.json();
@@ -65,7 +68,7 @@ export default function ForkliftMonitor() {
 
     try {
       setError(null);
-      const response = await fetch(`http://10.136.57.165:5000/api/camera/${selectedForklift}/register`, {
+      const response = await fetch(`${API_BASE}/camera/${selectedForklift}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ip: cameraIp })
@@ -88,7 +91,7 @@ export default function ForkliftMonitor() {
   const unregisterCamera = async () => {
     try {
       setError(null);
-      const response = await fetch(`http://10.136.57.165:5000/api/camera/${selectedForklift}/unregister`, {
+      const response = await fetch(`${API_BASE}/camera/${selectedForklift}/unregister`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -112,7 +115,7 @@ export default function ForkliftMonitor() {
 
     try {
       setError(null);
-      const response = await fetch(`http://10.136.57.165:5000/api/camera/${newForkliftId}/register`, {
+      const response = await fetch(`${API_BASE}/camera/${newForkliftId}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ip: null })
@@ -139,7 +142,7 @@ export default function ForkliftMonitor() {
 
     try {
       setError(null);
-      const response = await fetch(`http://10.136.57.165:5000/api/camera/${forkliftId}/delete`, {
+      const response = await fetch(`${API_BASE}/camera/${forkliftId}/delete`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -160,7 +163,7 @@ export default function ForkliftMonitor() {
   };
 
   const currentForklift = forklifts.find(f => f.id === selectedForklift);
-  const streamUrl = currentForklift?.stream_url ? `http://10.136.57.165:5000${currentForklift.stream_url}` : '';
+  const streamUrl = currentForklift?.stream_url ? `${API_HOST}${currentForklift.stream_url}` : '';
 
   return (
     <DashboardLayout>
