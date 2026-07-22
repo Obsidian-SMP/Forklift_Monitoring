@@ -710,4 +710,4 @@ See `docs/PROJECT_TRACKER.md` for detailed development progress.
 
 ---
 
-**Built with ❤️ for Smart Warehouse Management**
+**Built with ❤️ for Smart Warehouse Management and forklifts**
