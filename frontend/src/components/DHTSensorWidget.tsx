@@ -9,11 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface DHTReading {
-  temperature: number;
-  humidity: number;
+  temperature: number | null;
+  humidity: number | null;
   timestamp: string;
   status?: string;
   source?: string;
+  note?: string;
 }
 
 export function DHTSensorWidget() {
@@ -49,19 +50,19 @@ export function DHTSensorWidget() {
   // Temperature color coding
   const getTempColor = (temp: number) => {
     if (temp < 10) return 'from-blue-500 to-blue-600';
-    if (temp < 15) return 'from-cyan-500 to-cyan-600';
-    if (temp < 20) return 'from-green-500 to-green-600';
-    if (temp < 25) return 'from-yellow-500 to-yellow-600';
-    if (temp < 30) return 'from-orange-500 to-orange-600';
+    if (temp < 18) return 'from-cyan-500 to-cyan-600';
+    if (temp < 22) return 'from-yellow-500 to-yellow-600';
+    if (temp <= 28) return 'from-green-500 to-green-600';
+    if (temp <= 32) return 'from-orange-500 to-orange-600';
     return 'from-red-500 to-red-600';
   };
 
   const getTempStatus = (temp: number) => {
     if (temp < 10) return { emoji: '❄️', label: 'Cold' };
-    if (temp < 15) return { emoji: '🧊', label: 'Cool' };
-    if (temp < 20) return { emoji: '✓', label: 'Comfortable' };
-    if (temp < 25) return { emoji: '🌡️', label: 'Warm' };
-    if (temp < 30) return { emoji: '🔥', label: 'Hot' };
+    if (temp < 18) return { emoji: '🧊', label: 'Cool' };
+    if (temp < 22) return { emoji: '🌡️', label: 'Below Normal' };
+    if (temp <= 28) return { emoji: '✓', label: 'Normal' };
+    if (temp <= 32) return { emoji: '🔥', label: 'Warm' };
     return { emoji: '⚠️', label: 'Very Hot' };
   };
 
@@ -123,7 +124,7 @@ export function DHTSensorWidget() {
               <p className="text-amber-600 dark:text-amber-300/70 text-xs leading-relaxed">
                 Hardware sensor not found on GPIO pin 21 (physical pin 40). 
                 <br />
-                The system is displaying simulated values for testing purposes.
+                Temperature and humidity will appear when sensor data is available.
               </p>
             </div>
           </div>
@@ -144,7 +145,15 @@ export function DHTSensorWidget() {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        {reading && (
+        {reading?.status === 'unavailable' || reading?.temperature == null || reading?.humidity == null ? (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-6 text-center text-amber-700 dark:text-amber-300">
+            <AlertCircle className="mx-auto mb-2 h-8 w-8" />
+            <p className="font-semibold">DHT sensor data is not available</p>
+            <p className="mt-1 text-sm opacity-80">
+              Waiting for temperature and humidity data from the sensor.
+            </p>
+          </div>
+        ) : reading ? (
           <>
             {/* Temperature Section */}
             <div className="space-y-3">
@@ -166,14 +175,14 @@ export function DHTSensorWidget() {
               {/* Temperature Progress Bar */}
               <div className="space-y-1">
                 <div className="relative h-4 bg-muted rounded-full overflow-hidden">
-                  {/* Safe zone (15-25°C) */}
-                  <div className="absolute h-full bg-green-500/30" style={{ left: '30%', width: '40%' }} />
+                  {/* Normal zone (22-28°C) */}
+                  <div className="absolute h-full bg-green-500/30" style={{ left: '55%', width: '15%' }} />
                   {/* Warning zones */}
-                  <div className="absolute h-full bg-yellow-500/30" style={{ left: '10%', width: '20%' }} />
-                  <div className="absolute h-full bg-yellow-500/30" style={{ left: '70%', width: '20%' }} />
+                  <div className="absolute h-full bg-yellow-500/30" style={{ left: '25%', width: '30%' }} />
+                  <div className="absolute h-full bg-yellow-500/30" style={{ left: '70%', width: '10%' }} />
                   {/* Danger zones */}
                   <div className="absolute h-full bg-red-500/30" style={{ left: '0%', width: '10%' }} />
-                  <div className="absolute h-full bg-red-500/30" style={{ right: '0%', width: '10%' }} />
+                  <div className="absolute h-full bg-red-500/30" style={{ left: '80%', width: '20%' }} />
                   
                   {/* Current temperature indicator */}
                   <div
@@ -183,8 +192,8 @@ export function DHTSensorWidget() {
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>0°C</span>
-                  <span>15°C</span>
-                  <span>25°C</span>
+                  <span>22°C</span>
+                  <span>28°C</span>
                   <span>40°C</span>
                 </div>
               </div>
@@ -245,7 +254,7 @@ export function DHTSensorWidget() {
               </div>
             </div>
           </>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );

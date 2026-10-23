@@ -4,6 +4,7 @@ Endpoints for reading temperature and humidity from DHT sensor on GPIO pin 40
 """
 
 from flask import Blueprint, jsonify
+from app.models import WarehouseSensor
 from app.services.dht_sensor import get_dht_reading, initialize_dht
 
 dht_bp = Blueprint('dht', __name__)
@@ -45,16 +46,28 @@ def get_humidity():
 
 @dht_bp.route('/reading', methods=['GET'])
 def get_dht_data():
-    """Get current temperature and humidity from DHT sensor"""
+    """Get the latest temperature and humidity received by the backend."""
     try:
-        reading = get_dht_reading()
-        if reading:
+        sensor = WarehouseSensor.select().order_by(
+            WarehouseSensor.timestamp.desc()
+        ).first()
+        if sensor:
+            reading = sensor.to_dict()
             return jsonify({
-                'temperature': reading.get('temperature'),
-                'humidity': reading.get('humidity'),
-                'timestamp': reading.get('timestamp'),
-                'status': 'success'
+                'temperature': reading['temperature'],
+                'humidity': reading['humidity'],
+                'timestamp': reading['timestamp'],
+                'sensor_id': reading['sensor_id'],
+                'status': 'success',
+                'source': 'backend'
             }), 200
-        return jsonify({'error': 'Failed to read DHT sensor', 'status': 'error'}), 500
+        return jsonify({
+            'temperature': None,
+            'humidity': None,
+            'timestamp': None,
+            'status': 'unavailable',
+            'source': 'none',
+            'note': 'No DHT reading has been received by the backend'
+        }), 200
     except Exception as e:
         return jsonify({'error': str(e), 'status': 'error'}), 500

@@ -8,6 +8,7 @@ from flask import Blueprint, jsonify, request
 from datetime import datetime, timedelta
 from app.models import BLERSSIData, WiFiGateway, ForkliftPositionTrilateration
 from app.services.positioning_engine import get_positioning_engine
+from app import socketio
 from app.gateway_config import GATEWAYS
 
 rssi_bp = Blueprint('rssi', __name__)
@@ -96,6 +97,9 @@ def receive_rssi():
                 engine.add_rssi_sample(gateway_id, rssi, datetime.utcnow())
                 
                 print(f"📡 RSSI received: {gateway_id} → {forklift_id}: {rssi} dBm")
+                socketio.emit('rssi_update', {
+                    'reading': ble_reading.to_dict()
+                }, namespace='/')
                 break  # Success, exit retry loop
             except Exception as db_error:
                 if 'database is locked' in str(db_error) and attempt < max_retries - 1:
