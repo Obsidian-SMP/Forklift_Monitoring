@@ -37,9 +37,9 @@ const formatTimeByRange = (timestamp: string, range: TimeRange) => {
 };
 
 // Thresholds
-const TEMP_WARNING_HIGH = 25;
-const TEMP_DANGER_HIGH = 30;
-const TEMP_WARNING_LOW = 15;
+const TEMP_WARNING_HIGH = 28;
+const TEMP_DANGER_HIGH = 32;
+const TEMP_WARNING_LOW = 22;
 const TEMP_DANGER_LOW = 10;
 const HUMIDITY_WARNING_HIGH = 60;
 const HUMIDITY_DANGER_HIGH = 70;

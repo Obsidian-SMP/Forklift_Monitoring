@@ -281,7 +281,14 @@ export const dhtService = {
     }
   },
 
-  async getDHTReading(): Promise<{ temperature: number; humidity: number; timestamp: string }> {
+  async getDHTReading(): Promise<{
+    temperature: number | null;
+    humidity: number | null;
+    timestamp: string;
+    status?: string;
+    source?: string;
+    note?: string;
+  }> {
     try {
       const response = await fetch(`${API_BASE_URL}/dht/reading`);
       if (!response.ok) throw new Error(`API error: ${response.status}`);

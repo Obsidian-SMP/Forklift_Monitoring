@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertCircle, Wifi, MapPin, Zap, Activity, Plus, RefreshCw, Trash2, Pencil, X } from 'lucide-react';
 import apiService from '@/services/api';
+import { io } from 'socket.io-client';
 
 // Convert UTC timestamp to Indian Standard Time (IST - UTC+5:30)
 function convertToIST(timestamp: string | number | Date): string {
@@ -43,6 +44,7 @@ export default function RSSIMonitoring() {
   const [gateways, setGateways] = useState<any[]>([]);
   const [rssiHistory, setRSSIHistory] = useState<any[]>([]);
   const [position, setPosition] = useState<any>(null);
+  const [latestRawRSSI, setLatestRawRSSI] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshInterval, setRefreshInterval] = useState(2000);
@@ -98,6 +100,38 @@ export default function RSSIMonitoring() {
     fetchData();
   }, []);
 
+  // Receive the exact RSSI value accepted by the backend without waiting for polling.
+  useEffect(() => {
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const socketUrl = apiUrl.replace(/\/api\/?$/, '');
+    const socket = io(socketUrl, {
+      transports: ['websocket', 'polling'],
+    });
+
+    socket.on('rssi_update', (payload: { reading?: any }) => {
+      const reading = payload?.reading;
+      if (!reading?.gateway_id) return;
+
+      setLatestRawRSSI((current) => ({
+        ...current,
+        [reading.gateway_id]: reading,
+      }));
+      setRSSIHistory((current) => [
+        reading,
+        ...current.filter((item) => item.id !== reading.id),
+      ].slice(0, 100));
+      setGateways((current) => current.map((gateway) =>
+        gateway.gateway_id === reading.gateway_id
+          ? { ...gateway, last_seen: reading.timestamp, is_active: true }
+          : gateway
+      ));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
   // Auto-refresh
   useEffect(() => {
     if (!autoRefresh) return;
@@ -107,8 +141,11 @@ export default function RSSIMonitoring() {
 
   // Get latest RSSI for each gateway
   const getLatestRSSI = (gatewayId: string): number | null => {
+    const liveReading = latestRawRSSI[gatewayId];
+    if (liveReading) return liveReading.rssi;
+
     const readings = rssiHistory.filter((r) => r.gateway_id === gatewayId);
-    return readings.length > 0 ? readings[readings.length - 1].rssi : null;
+    return readings.length > 0 ? readings[0].rssi : null;
   };
 
   // Get RSSI signal strength indicator

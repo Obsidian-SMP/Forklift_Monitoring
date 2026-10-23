@@ -84,29 +84,20 @@ class DHTSensor:
             print(f"DHT read error: {e}")
             return None
     
-    def get_simulated_reading(self):
-        """Return simulated reading when hardware unavailable"""
-        import random
-        # Use last reading as base if available, otherwise use defaults
-        base_temp = 26.0
-        base_humidity = 43.0
-        
-        if self.last_reading and self.last_reading.get('temperature'):
-            base_temp = self.last_reading['temperature']
-            base_humidity = self.last_reading['humidity']
-        
+    def get_unavailable_reading(self):
+        """Return an explicit unavailable result when no hardware reading exists."""
         return {
-            'temperature': round(base_temp + random.uniform(-0.3, 0.3), 1),
-            'humidity': round(base_humidity + random.uniform(-1, 1), 1),
+            'temperature': None,
+            'humidity': None,
             'timestamp': datetime.now(IST).isoformat(),
             'status': 'unavailable',
-            'source': 'simulated'
+            'source': 'none',
+            'note': 'No DHT11 sensor reading is available'
         }
     
     def get_error_reading(self):
         """Return error status when sensor unavailable"""
-        # Return simulated data instead of null values
-        return self.get_simulated_reading()
+        return self.get_unavailable_reading()
     
     def read(self):
         """Read temperature and humidity from DHT sensor"""
@@ -140,9 +131,8 @@ class DHTSensor:
                 stale_reading['note'] = 'Using last successful reading (sensor read failed)'
                 return stale_reading
             
-            # No previous reading - return simulated data with unavailable status
-            result = self.get_simulated_reading()
-            result['note'] = 'Failed to read DHT11 sensor - using simulated data'
+            # No previous hardware reading is available.
+            result = self.get_unavailable_reading()
             self.last_reading = result
             self.last_read_time = datetime.now(IST)
             return result
@@ -166,5 +156,4 @@ def get_dht_reading():
 
 # Initialize on import
 initialize_dht()
-
 
