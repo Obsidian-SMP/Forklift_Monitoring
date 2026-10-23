@@ -21,31 +21,33 @@ class PositioningEngine:
     Runs as background thread with configurable update rate
     """
     
-    def __init__(self, update_interval=0.5, tx_power=-55):
+    def __init__(self, update_interval=None, tx_power=None):
         """
         Initialize positioning engine
-        
+
         Args:
             update_interval: Time between position calculations (seconds)
-            tx_power: Calibrated TX power for RSSI-to-distance conversion
+            tx_power: Baseline TX power for RSSI-to-distance conversion (defaults to RSSI_CONFIG['TX_POWER'])
         """
-        self.update_interval = update_interval
-        
         # Load config values
         from app.gateway_config import RSSI_CONFIG, TRILATERATION_CONFIG
-        
+
+        self.update_interval = update_interval if update_interval is not None else TRILATERATION_CONFIG.get('UPDATE_INTERVAL', 0.5)
+        resolved_tx_power = tx_power if tx_power is not None else RSSI_CONFIG.get('TX_POWER', -64.0)
+
         # Initialize components with config values
         self.rssi_processor = RSSIProcessor(
             buffer_size=RSSI_CONFIG.get('BUFFER_SIZE', 10),
-            smoothing_alpha=RSSI_CONFIG.get('SMOOTHING_ALPHA', 0.25)
+            smoothing_alpha=RSSI_CONFIG.get('SMOOTHING_ALPHA', 0.40)
         )
         self.trilateration = WLSTrilateration(
-            tx_power=tx_power,
-            n_los=RSSI_CONFIG.get('PATH_LOSS_N_LOS', 2.0),
-            n_nlos=RSSI_CONFIG.get('PATH_LOSS_N_NLOS', 3.5)
+            tx_power=resolved_tx_power,
+            n_los=RSSI_CONFIG.get('PATH_LOSS_N_LOS', 1.71),
+            n_nlos=RSSI_CONFIG.get('PATH_LOSS_N_NLOS', 3.5),
+            los_threshold=RSSI_CONFIG.get('LOS_THRESHOLD', -70)
         )
         self.ekf = ExtendedKalmanFilter(
-            dt=update_interval,
+            dt=self.update_interval,
             process_noise=TRILATERATION_CONFIG.get('PROCESS_NOISE', 0.3),
             measurement_noise=TRILATERATION_CONFIG.get('MEASUREMENT_NOISE', 9.0)
         )
@@ -116,18 +118,22 @@ class PositioningEngine:
             return self.stats.copy()
     
     def _update_gateway_cache(self):
-        """Update gateway positions from database"""
+        """Update gateway positions and calibration from database and gateway_config"""
         try:
+            from app.gateway_config import get_gateway_params
             gateways = WiFiGateway.select().where(WiFiGateway.is_active == 'true')
             
             self.gateway_cache = {}
             for gw in gateways:
+                params = get_gateway_params(gw.gateway_id)
                 self.gateway_cache[gw.gateway_id] = {
                     'name': gw.name,
                     'position': (gw.location_x, gw.location_y, gw.location_z),
                     'x': gw.location_x,
                     'y': gw.location_y,
-                    'z': gw.location_z
+                    'z': gw.location_z,
+                    'tx_power': params.get('tx_power'),
+                    'n_los': params.get('n_los')
                 }
             
             self.last_gateway_update = datetime.utcnow()
@@ -186,22 +192,33 @@ class PositioningEngine:
     def _calculate_position(self) -> Optional[Dict]:
         """
         Calculate position using RSSI → WLS → EKF pipeline
+        with per-gateway calibration and low-latency window
         
         Returns:
             Position dictionary or None if calculation fails
         """
         try:
-            # Step 1: Get filtered RSSI from all gateways
-            filtered_rssi = self.rssi_processor.get_all_filtered_rssi(max_age_seconds=10)
+            from app.gateway_config import RSSI_CONFIG
+            import numpy as np
+
+            max_age = RSSI_CONFIG.get('MAX_AGE_SECONDS', 2.0)
+            min_samples = RSSI_CONFIG.get('MIN_SAMPLES', 1)
+
+            # Step 1: Get filtered RSSI from all gateways (low-latency window)
+            filtered_rssi = self.rssi_processor.get_all_filtered_rssi(
+                max_age_seconds=max_age,
+                min_samples=min_samples
+            )
             
             if len(filtered_rssi) < 2:
                 # Not enough gateways
                 return None
             
-            # Step 2: Get gateway positions and prepare for trilateration
+            # Step 2: Get gateway positions and calibration parameters
             gateway_positions = []
             rssi_values = []
             gateway_ids = []
+            gateway_params = []
             
             for gw_id, rssi in filtered_rssi.items():
                 if gw_id in self.gateway_cache:
@@ -209,13 +226,17 @@ class PositioningEngine:
                     gateway_positions.append(gw_info['position'])
                     rssi_values.append(rssi)
                     gateway_ids.append(gw_id)
+                    gateway_params.append({
+                        'tx_power': gw_info.get('tx_power'),
+                        'n_los': gw_info.get('n_los')
+                    })
             
             if len(gateway_positions) < 2:
                 return None
             
-            # Step 3: WLS Trilateration
+            # Step 3: WLS Trilateration with per-gateway parameters
             trilateration_result = self.trilateration.calculate_position(
-                gateway_positions, rssi_values
+                gateway_positions, rssi_values, gateway_params=gateway_params
             )
             
             if not trilateration_result:
@@ -273,15 +294,20 @@ class PositioningEngine:
             # Save to database for historical tracking
             try:
                 from app.models import ForkliftPositionTrilateration
+                avg_rssi = float(np.mean(list(position['rssi_values'].values()))) if position.get('rssi_values') else None
                 ForkliftPositionTrilateration.create(
                     forklift_id=position['forklift_id'],
                     calculated_x=position['x'],
                     calculated_y=position['y'],
                     calculated_z=position.get('z', 0.0),
-                    accuracy_meters=position['accuracy'],
+                    accuracy=position.get('accuracy'),
                     gateway_count=position['gateway_count'],
+                    average_rssi=avg_rssi,
                     method=position['method'],
-                    confidence_score=position['confidence']
+                    velocity_x=position.get('vx', 0.0),
+                    velocity_y=position.get('vy', 0.0),
+                    speed=position.get('speed', 0.0),
+                    timestamp=datetime.utcnow()
                 )
             except Exception as db_err:
                 # Don't fail position calculation if DB write fails
@@ -304,7 +330,11 @@ def get_positioning_engine() -> PositioningEngine:
     """Get global positioning engine instance"""
     global _positioning_engine
     if _positioning_engine is None:
-        _positioning_engine = PositioningEngine(update_interval=0.5, tx_power=-58.0)
+        from app.gateway_config import RSSI_CONFIG, TRILATERATION_CONFIG
+        _positioning_engine = PositioningEngine(
+            update_interval=TRILATERATION_CONFIG.get('UPDATE_INTERVAL', 0.5),
+            tx_power=RSSI_CONFIG.get('TX_POWER', -64.0)
+        )
     return _positioning_engine
 
 

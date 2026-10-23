@@ -48,55 +48,63 @@ class RSSIProcessor:
         
         self.rssi_buffers[gateway_id].append((timestamp, rssi))
     
-    def get_filtered_rssi(self, gateway_id, max_age_seconds=10):
+    def get_filtered_rssi(self, gateway_id, max_age_seconds=2.0, min_samples=1):
         """
-        Get filtered RSSI value for a gateway
-        
+        Get filtered RSSI value for a gateway with minimal phase delay
+
         Args:
             gateway_id: Gateway identifier
-            max_age_seconds: Maximum age of samples to consider
-        
+            max_age_seconds: Maximum age of samples to consider (default: 2.0s for high responsiveness)
+            min_samples: Minimum number of samples required (default: 1)
+
         Returns:
             Filtered RSSI value or None if insufficient data
         """
         if gateway_id not in self.rssi_buffers:
             return None
-        
-        # Get recent samples
+
+        # Get recent samples within the active time window
         cutoff_time = datetime.utcnow() - timedelta(seconds=max_age_seconds)
         recent_samples = [
             rssi for timestamp, rssi in self.rssi_buffers[gateway_id]
             if timestamp >= cutoff_time
         ]
-        
-        if len(recent_samples) < 3:
+
+        if len(recent_samples) < min_samples:
             return None
-        
+
+        # If only 1 sample, return directly (instant response)
+        if len(recent_samples) == 1:
+            return float(recent_samples[0])
+
+        # If 2 samples, return median/mean
+        if len(recent_samples) == 2:
+            return float(np.mean(recent_samples))
+
         # Stage 1: Outlier removal using MAD (Median Absolute Deviation)
-        filtered = self._remove_outliers_mad(recent_samples)
-        
-        if len(filtered) < 3:
-            # If too many outliers removed, use original samples
+        filtered = self._remove_outliers_mad(recent_samples, threshold=2.5)
+
+        if len(filtered) < 2:
             filtered = recent_samples
-        
-        # Stage 2: Median filter (reduces spikes)
-        if len(filtered) >= 5:
-            median_filtered = self._median_filter(filtered, window=5)
+
+        # Stage 2: Fast 3-tap Median filter (reduces spikes without group delay)
+        if len(filtered) >= 3:
+            median_filtered = self._median_filter(filtered, window=3)
         else:
             median_filtered = filtered
-        
-        # Stage 3: Exponential moving average
+
+        # Stage 3: Light exponential moving average (preserves dynamics for EKF)
         smoothed = self._exponential_smooth(median_filtered)
-        
+
         # Update statistics
         self.gateway_stats[gateway_id] = {
-            'raw_mean': np.mean(recent_samples),
-            'raw_std': np.std(recent_samples),
+            'raw_mean': float(np.mean(recent_samples)),
+            'raw_std': float(np.std(recent_samples)) if len(recent_samples) > 1 else 0.0,
             'filtered_value': smoothed,
             'sample_count': len(recent_samples),
             'outliers_removed': len(recent_samples) - len(filtered)
         }
-        
+
         return smoothed
     
     def _remove_outliers_mad(self, samples, threshold=2.5):
@@ -175,16 +183,20 @@ class RSSIProcessor:
         """Get statistics for a gateway"""
         return self.gateway_stats.get(gateway_id, {})
     
-    def get_all_filtered_rssi(self, max_age_seconds=10):
+    def get_all_filtered_rssi(self, max_age_seconds=2.0, min_samples=1):
         """
         Get filtered RSSI for all gateways
-        
+
+        Args:
+            max_age_seconds: Time window in seconds (default: 2.0s)
+            min_samples: Minimum samples required per gateway (default: 1)
+
         Returns:
             Dictionary {gateway_id: filtered_rssi}
         """
         result = {}
         for gateway_id in self.rssi_buffers.keys():
-            filtered = self.get_filtered_rssi(gateway_id, max_age_seconds)
+            filtered = self.get_filtered_rssi(gateway_id, max_age_seconds=max_age_seconds, min_samples=min_samples)
             if filtered is not None:
                 result[gateway_id] = filtered
         

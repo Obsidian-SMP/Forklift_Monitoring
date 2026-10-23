@@ -29,58 +29,78 @@ class WLSTrilateration:
         self.n_nlos = n_nlos
         self.los_threshold = los_threshold
     
-    def rssi_to_distance(self, rssi: float, adaptive: bool = True) -> float:
+    def rssi_to_distance(
+        self,
+        rssi: float,
+        tx_power: Optional[float] = None,
+        n_los: Optional[float] = None,
+        adaptive: bool = True
+    ) -> float:
         """
         Convert RSSI to distance using log-distance path loss model
-        
+
         Args:
             rssi: RSSI value in dBm
+            tx_power: Transmit power at 1 meter for this specific gateway (default: self.tx_power)
+            n_los: Path loss exponent for LOS for this specific gateway (default: self.n_los)
             adaptive: Use adaptive path loss exponent (LOS vs NLOS)
-        
+
         Returns:
             Distance in meters
         """
-        if rssi >= self.tx_power:
-            return 0.5  # Very close
-        
+        actual_tx_power = tx_power if tx_power is not None else self.tx_power
+        actual_n_los = n_los if n_los is not None else self.n_los
+
         # Adaptive path loss exponent
         if adaptive:
-            n = self.n_los if rssi > self.los_threshold else self.n_nlos
+            n = actual_n_los if rssi > self.los_threshold else self.n_nlos
         else:
-            n = self.n_los
-        
-        # Calculate distance
-        distance = 10 ** ((self.tx_power - rssi) / (10 * n))
-        
-        # Clamp to reasonable bounds
-        return np.clip(distance, 0.1, 50.0)
-    
+            n = actual_n_los
+
+        # Calculate distance with smooth minimum
+        exponent = (actual_tx_power - rssi) / (10.0 * n)
+        distance = 10.0 ** exponent
+
+        # Clamp to reasonable physical bounds (0.1m to 50.0m)
+        return float(np.clip(distance, 0.1, 50.0))
+
     def calculate_position(
         self,
         gateway_positions: List[Tuple[float, float, float]],
-        rssi_values: List[float]
+        rssi_values: List[float],
+        gateway_params: Optional[List[Dict]] = None
     ) -> Optional[Dict]:
         """
-        Calculate position using WLS trilateration
-        
+        Calculate position using WLS trilateration with per-gateway calibration support
+
         Args:
             gateway_positions: List of (x, y, z) tuples for each gateway
             rssi_values: List of RSSI values corresponding to each gateway
-        
+            gateway_params: Optional list of per-gateway parameter dicts {'tx_power': float, 'n_los': float}
+
         Returns:
             Dictionary with position, accuracy, method, or None if calculation fails
         """
         n_gateways = len(gateway_positions)
-        
+
         if n_gateways != len(rssi_values):
             return None
-        
+
         if n_gateways < 2:
             return None
-        
-        # Convert RSSI to distances
-        distances = [self.rssi_to_distance(rssi) for rssi in rssi_values]
-        
+
+        # Convert RSSI to distances using per-gateway calibration if available
+        distances = []
+        for i, rssi in enumerate(rssi_values):
+            tx_power = None
+            n_los = None
+            if gateway_params and i < len(gateway_params) and gateway_params[i]:
+                tx_power = gateway_params[i].get('tx_power')
+                n_los = gateway_params[i].get('n_los')
+
+            dist = self.rssi_to_distance(rssi, tx_power=tx_power, n_los=n_los)
+            distances.append(dist)
+
         # Choose method based on gateway count
         if n_gateways == 2:
             return self._bilateration(gateway_positions, distances, rssi_values)

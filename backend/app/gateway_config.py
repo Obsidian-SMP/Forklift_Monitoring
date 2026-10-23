@@ -88,16 +88,26 @@ GATEWAYS_6 = {
 # Change this to GATEWAYS_3, GATEWAYS_4, GATEWAYS_5, or GATEWAYS_6
 GATEWAYS = GATEWAYS_4  # Default: 4 gateways (optimal)
 
+# Per-gateway calibration overrides (gateway_id -> {'tx_power': float, 'path_loss_n': float})
+# Gateways not listed here will fall back to baseline RSSI_CONFIG
+GATEWAY_CALIBRATION = {
+    # e.g.:
+    # "phone_1": {"tx_power": -64.0, "path_loss_n": 1.71},
+    # "phone_2": {"tx_power": -62.5, "path_loss_n": 1.80},
+}
+
 # RSSI to Distance Conversion Parameters
 # IMPORTANT: Calibrate TX_POWER for your specific Arduino Nano 33 IoT beacon!
 # See calibration guide in PATH_TRACKING_RSSI_CRITICAL_ANALYSIS.md
 RSSI_CONFIG = {
-    "TX_POWER": -64.0,  # Calibrated on 2026-02-06
-    "PATH_LOSS_N_LOS": 1.71,  # Calibrated
+    "TX_POWER": -64.0,  # Baseline calibrated on 2026-02-06
+    "PATH_LOSS_N_LOS": 1.71,  # Baseline Line-of-sight path loss exponent
     "PATH_LOSS_N_NLOS": 3.5,  # Non-line-of-sight (through obstacles)
     "LOS_THRESHOLD": -70,  # RSSI threshold for LOS detection (dBm)
-    "SMOOTHING_ALPHA": 0.25,  # EMA smoothing factor (0.25 = moderate smoothing, more responsive)
+    "SMOOTHING_ALPHA": 0.40,  # Light EMA smoothing factor (higher = more responsive for raw values)
     "BUFFER_SIZE": 10,  # Number of RSSI samples to keep per gateway
+    "MAX_AGE_SECONDS": 2.0,  # Maximum age of RSSI samples to consider (reduced from 10s to 2s to remove movement lag)
+    "MIN_SAMPLES": 1,  # Minimum samples required per gateway (reduced from 3 to 1 for fast response)
     "MIN_RSSI": -95,  # Minimum RSSI value (weaker signals ignored)
     "MAX_RSSI": -30,  # Maximum RSSI value (very close)
 }
@@ -117,3 +127,35 @@ WAREHOUSE_DIMENSIONS = {
     "length_y": 10.0,  # Total length in Y direction (meters)
     "height_z": 3.0,  # Ceiling height (meters)
 }
+
+
+def get_gateway_params(gateway_id: str) -> dict:
+    """
+    Get calibration parameters for a specific gateway,
+    falling back to global RSSI_CONFIG baseline if not customized.
+    """
+    params = {
+        "tx_power": RSSI_CONFIG["TX_POWER"],
+        "n_los": RSSI_CONFIG["PATH_LOSS_N_LOS"],
+        "n_nlos": RSSI_CONFIG["PATH_LOSS_N_NLOS"],
+        "los_threshold": RSSI_CONFIG["LOS_THRESHOLD"],
+    }
+
+    # Check per-gateway calibration override
+    if gateway_id in GATEWAY_CALIBRATION:
+        gw_cal = GATEWAY_CALIBRATION[gateway_id]
+        if "tx_power" in gw_cal and gw_cal["tx_power"] is not None:
+            params["tx_power"] = float(gw_cal["tx_power"])
+        if "path_loss_n" in gw_cal and gw_cal["path_loss_n"] is not None:
+            params["n_los"] = float(gw_cal["path_loss_n"])
+
+    # Also check if declared in active GATEWAYS dict
+    elif gateway_id in GATEWAYS:
+        gw_info = GATEWAYS[gateway_id]
+        if "tx_power" in gw_info and gw_info["tx_power"] is not None:
+            params["tx_power"] = float(gw_info["tx_power"])
+        if "path_loss_n" in gw_info and gw_info["path_loss_n"] is not None:
+            params["n_los"] = float(gw_info["path_loss_n"])
+
+    return params
+

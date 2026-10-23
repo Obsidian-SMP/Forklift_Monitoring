@@ -391,29 +391,26 @@ def get_position_history():
 @rssi_bp.route('/position/calculate', methods=['POST'])
 def calculate_position_now():
     """
-    Manually trigger position calculation
+    Manually trigger position calculation using the unified PositioningEngine
     
-    JSON body:
+    JSON body (optional):
     {
         "forklift_id": "forklift_001"
     }
     """
     try:
-        data = request.get_json() or {}
-        forklift_id = data.get('forklift_id', 'forklift_001')
-        
-        position = TrilatationService.calculate_position(forklift_id, time_window_seconds=10)
+        engine = get_positioning_engine()
+        position = engine._calculate_position()
         
         if position:
-            saved = TrilatationService.save_calculated_position(forklift_id, position)
             return jsonify({
                 'status': 'success',
-                'position': saved
+                'position': position
             }), 200
         else:
             return jsonify({
                 'status': 'insufficient_data',
-                'message': 'Not enough gateway readings for trilateration'
+                'message': 'Not enough active gateway readings for trilateration'
             }), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500

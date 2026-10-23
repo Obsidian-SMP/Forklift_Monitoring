@@ -8,9 +8,14 @@ import requests
 import time
 import statistics
 import math
+import os
+import json
 from datetime import datetime, timedelta
 from colorama import init, Fore, Style
 import sys
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+GATEWAY_CONFIG_PATH = os.path.join(BASE_DIR, "app", "gateway_config.py")
 
 # Initialize colorama for colored terminal output
 init(autoreset=True)
@@ -290,64 +295,66 @@ def calibrate_path_loss_exponent(gateway_id, tx_power):
 
 def update_positioning_engine_config(tx_power):
     """
-    Update positioning_engine.py with new TX_POWER value
+    Positioning engine dynamically reads RSSI_CONFIG['TX_POWER'] and per-gateway parameters
+    from gateway_config.py, so no direct code modification of positioning_engine.py is needed.
     """
-    config_file = "/home/rpi/warehouse_iot/backend/app/services/positioning_engine.py"
+    print_info("PositioningEngine dynamically binds to gateway_config.py parameters.")
+    return True
+
+
+def update_gateway_config(calibration_results, avg_tx_power, avg_path_loss=None):
+    """
+    Update gateway_config.py with per-gateway and baseline calibrated values
+    """
+    config_file = GATEWAY_CONFIG_PATH
     
     try:
-        with open(config_file, 'r') as f:
-            content = f.read()
-        
-        # Replace TX_POWER in get_positioning_engine function
-        old_line = "_positioning_engine = PositioningEngine(update_interval=0.5, tx_power=-55)"
-        new_line = f"_positioning_engine = PositioningEngine(update_interval=0.5, tx_power={tx_power:.1f})"
-        
-        if old_line in content:
-            content = content.replace(old_line, new_line)
-            
-            with open(config_file, 'w') as f:
-                f.write(content)
-            
-            print_success(f"Updated {config_file}")
-            return True
-        else:
-            print_warning("Could not find TX_POWER line in positioning_engine.py")
+        if not os.path.exists(config_file):
+            print_error(f"Config file not found at: {config_file}")
             return False
             
+        with open(config_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Build formatted GATEWAY_CALIBRATION dictionary
+        cal_entries = []
+        for gw_id, results in calibration_results.items():
+            tx_val = results['tx_power']
+            n_val = results.get('path_loss_n')
+            if n_val:
+                cal_entries.append(f'    "{gw_id}": {{"tx_power": {tx_val:.1f}, "path_loss_n": {n_val:.2f}}},')
+            else:
+                cal_entries.append(f'    "{gw_id}": {{"tx_power": {tx_val:.1f}}},')
+
+        new_cal_block = "GATEWAY_CALIBRATION = {\n" + "\n".join(cal_entries) + "\n}"
+
+        # Replace existing GATEWAY_CALIBRATION block
+        import re
+        cal_pattern = r"GATEWAY_CALIBRATION\s*=\s*\{.*?\}"
+        if re.search(cal_pattern, content, re.DOTALL):
+            content = re.sub(cal_pattern, new_cal_block, content, flags=re.DOTALL)
+        else:
+            # If not present, inject before RSSI_CONFIG
+            content = content.replace("RSSI_CONFIG = {", new_cal_block + "\n\nRSSI_CONFIG = {")
+
+        # Replace baseline TX_POWER and PATH_LOSS_N_LOS
+        lines = content.splitlines(keepends=True)
+        for i, line in enumerate(lines):
+            if '"TX_POWER":' in line and 'RSSI_CONFIG' in ''.join(lines[max(0, i-5):i]):
+                lines[i] = f'    "TX_POWER": {avg_tx_power:.1f},  # Calibrated on {datetime.now().strftime("%Y-%m-%d")}\n'
+            if avg_path_loss and '"PATH_LOSS_N_LOS":' in line and 'RSSI_CONFIG' in ''.join(lines[max(0, i-6):i]):
+                lines[i] = f'    "PATH_LOSS_N_LOS": {avg_path_loss:.2f},  # Calibrated\n'
+
+        content = ''.join(lines)
+        with open(config_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        print_success(f"Updated {config_file} with per-gateway and baseline calibration!")
+        return True
+
     except Exception as e:
         print_error(f"Failed to update config file: {e}")
         return False
-
-
-def update_gateway_config(tx_power, path_loss_n=None):
-    """
-    Update gateway_config.py with calibrated values
-    """
-    config_file = "/home/rpi/warehouse_iot/backend/app/gateway_config.py"
-    
-    try:
-        with open(config_file, 'r') as f:
-            lines = f.readlines()
-        
-        updated = False
-        for i, line in enumerate(lines):
-            if '"TX_POWER":' in line and 'RSSI_CONFIG' in ''.join(lines[max(0, i-5):i]):
-                lines[i] = f'    "TX_POWER": {tx_power:.1f},  # Calibrated on {datetime.now().strftime("%Y-%m-%d")}\n'
-                updated = True
-            
-            if path_loss_n and '"PATH_LOSS_N_LOS":' in line:
-                lines[i] = f'    "PATH_LOSS_N_LOS": {path_loss_n:.2f},  # Calibrated\n'
-        
-        if updated:
-            with open(config_file, 'w') as f:
-                f.writelines(lines)
-            
-            print_success(f"Updated {config_file}")
-            return True
-        
-        return False
-            
-    except Exception as e:
         print_error(f"Failed to update config file: {e}")
         return False
 
@@ -465,26 +472,25 @@ def main():
         # Update positioning engine
         update_positioning_engine_config(avg_tx_power)
         
-        # Update gateway config
+        # Update gateway config with per-gateway results and baseline average
         avg_path_loss = None
         path_loss_values = [r['path_loss_n'] for r in calibration_results.values() if r['path_loss_n']]
         if path_loss_values:
             avg_path_loss = statistics.mean(path_loss_values)
         
-        update_gateway_config(avg_tx_power, avg_path_loss)
+        update_gateway_config(calibration_results, avg_tx_power, avg_path_loss)
         
         print()
         print_warning("⚠️  IMPORTANT: Restart the backend to apply changes!")
-        print_info("Run: cd /home/rpi/warehouse_iot/backend && python run.py")
+        print_info("Run: cd backend && python run.py")
     else:
         print()
         print_info("Configuration files NOT updated. Manual update required:")
-        print(f"\n{Fore.CYAN}1. Update backend/app/services/positioning_engine.py:{Style.RESET_ALL}")
-        print(f"   Line 276: tx_power={avg_tx_power:.1f}")
-        print(f"\n{Fore.CYAN}2. Update backend/app/gateway_config.py:{Style.RESET_ALL}")
-        print(f"   TX_POWER: {avg_tx_power:.1f}")
+        print(f"\n{Fore.CYAN}Update backend/app/gateway_config.py:{Style.RESET_ALL}")
+        print(f"   GATEWAY_CALIBRATION with per-gateway tx_power/path_loss_n")
+        print(f"   Baseline TX_POWER: {avg_tx_power:.1f}")
         if avg_path_loss:
-            print(f"   PATH_LOSS_N_LOS: {avg_path_loss:.2f}")
+            print(f"   Baseline PATH_LOSS_N_LOS: {avg_path_loss:.2f}")
     
     print()
     print_success("Calibration complete! 🎉")
