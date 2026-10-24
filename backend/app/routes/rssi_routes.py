@@ -6,7 +6,7 @@ Enhanced with new positioning engine (WLS + EKF)
 
 from flask import Blueprint, jsonify, request
 from datetime import datetime, timedelta
-from app.models import BLERSSIData, WiFiGateway, ForkliftPositionTrilateration
+from app.models import BLERSSIData, WiFiGateway
 from app.services.positioning_engine import get_positioning_engine
 from app import socketio
 from app.gateway_config import GATEWAYS
@@ -264,21 +264,8 @@ def debug_info():
             'timestamp': r.timestamp.isoformat()
         } for r in recent_rssi]
         
-        # Get latest position
-        latest_position = ForkliftPositionTrilateration.select().order_by(
-            ForkliftPositionTrilateration.timestamp.desc()
-        ).first()
-        
-        position_info = None
-        if latest_position:
-            position_info = {
-                'x': latest_position.calculated_x,
-                'y': latest_position.calculated_y,
-                'z': latest_position.calculated_z,
-                'accuracy': latest_position.accuracy,
-                'gateway_count': latest_position.gateway_count,
-                'timestamp': latest_position.timestamp.isoformat()
-            }
+        # Get the current in-memory position; travelled-path storage is disabled.
+        position_info = get_positioning_engine().get_latest_position()
         
         return jsonify({
             'gateways': gateway_info,
@@ -356,38 +343,6 @@ def get_latest_position():
                 'message': 'No position calculated yet (waiting for RSSI data)',
                 'position': None
             }), 404
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@rssi_bp.route('/position/history', methods=['GET'])
-def get_position_history():
-    """
-    Get calculated position history (path taken)
-    
-    Query params:
-    - forklift_id: (default: forklift_001)
-    - hours: (default: 1) - how many hours back
-    - limit: (default: 50) - max records
-    """
-    try:
-        forklift_id = request.args.get('forklift_id', 'forklift_001')
-        hours = int(request.args.get('hours', 1))
-        limit = int(request.args.get('limit', 50))
-        
-        start_time = datetime.utcnow() - timedelta(hours=hours)
-        
-        positions = list(ForkliftPositionTrilateration.select().where(
-            (ForkliftPositionTrilateration.forklift_id == forklift_id) &
-            (ForkliftPositionTrilateration.timestamp >= start_time)
-        ).order_by(ForkliftPositionTrilateration.timestamp.asc()).limit(limit))
-        
-        return jsonify({
-            'forklift_id': forklift_id,
-            'count': len(positions),
-            'period_hours': hours,
-            'track': [p.to_dict() for p in positions]
-        }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

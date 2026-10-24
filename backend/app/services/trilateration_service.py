@@ -5,7 +5,7 @@ Calculates forklift position from RSSI data received from multiple gateways
 
 import math
 from datetime import datetime, timedelta
-from app.models import BLERSSIData, WiFiGateway, ForkliftPositionTrilateration
+from app.models import BLERSSIData, WiFiGateway
 from app.gateway_config import RSSI_CONFIG, TRILATERATION_CONFIG, GATEWAYS
 import statistics
 
@@ -614,30 +614,3 @@ class TrilatationService:
         
         return sum(errors) / len(errors) if errors else 0
     
-    @staticmethod
-    def save_calculated_position(forklift_id, position_data):
-        """
-        Save calculated position to database
-        
-        Args:
-            forklift_id: Forklift identifier
-            position_data: Dictionary with x, y, z, accuracy, velocity, etc.
-        """
-        if not position_data:
-            return None
-        
-        record = ForkliftPositionTrilateration.create(
-            forklift_id=forklift_id,
-            calculated_x=position_data.get('x', 0),
-            calculated_y=position_data.get('y', 0),
-            calculated_z=position_data.get('z', 0),
-            accuracy=position_data.get('accuracy'),
-            gateway_count=position_data.get('gateway_count', 0),
-            average_rssi=position_data.get('average_rssi'),
-            method=position_data.get('method', 'trilateration'),
-            velocity_x=position_data.get('velocity_x', 0.0),
-            velocity_y=position_data.get('velocity_y', 0.0),
-            speed=position_data.get('speed', 0.0)
-        )
-        
-        return record.to_dict()

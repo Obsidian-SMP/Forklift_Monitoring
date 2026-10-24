@@ -6,7 +6,7 @@ Monitors warehouse events and generates alerts based on actual data
 from datetime import datetime, timedelta
 from app.models import (
     DetectedObject, WarehouseEntry, Inventory, 
-    InventoryTransaction, Forklift, ForkliftLocation
+    InventoryTransaction, Forklift, ForkliftLocation, AlertEvent
 )
 import json
 
@@ -249,6 +249,17 @@ class AlertsService:
                     })
         
         return alerts
+
+    @staticmethod
+    def get_persisted_alerts():
+        """Return alerts created by event sources such as the interactive map."""
+        recent_time = datetime.utcnow() - timedelta(hours=24)
+        return [
+            event.to_alert()
+            for event in AlertEvent.select().where(
+                AlertEvent.timestamp >= recent_time
+            ).order_by(AlertEvent.timestamp.desc())
+        ]
     
     @staticmethod
     def get_all_alerts(filters=None):
@@ -280,6 +291,11 @@ class AlertsService:
             all_alerts.extend(AlertsService.get_forklift_location_alerts())
         except Exception as e:
             print(f"Error getting forklift location alerts: {e}")
+
+        try:
+            all_alerts.extend(AlertsService.get_persisted_alerts())
+        except Exception as e:
+            print(f"Error getting persisted alerts: {e}")
         
         # Sort by timestamp (newest first)
         if all_alerts:

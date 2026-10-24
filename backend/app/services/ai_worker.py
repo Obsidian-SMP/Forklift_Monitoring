@@ -166,6 +166,34 @@ class AIDetectionWorker:
         except queue.Full:
             logger.warning(f"AI queue full - skipping image from {forklift_id}")
             return False
+
+    def queue_image_bytes(self, image_bytes, forklift_id, metadata=None):
+        """Queue a JPEG from memory; no raw upload file is created."""
+        if not self.model:
+            return False
+
+        if not self.should_process(forklift_id):
+            return False
+
+        try:
+            if self.queue_priority == 'latest' and self.image_queue.qsize() > 2:
+                while self.image_queue.qsize() > 1:
+                    try:
+                        self.image_queue.get_nowait()
+                    except queue.Empty:
+                        break
+
+            self.image_queue.put_nowait({
+                'image_bytes': image_bytes,
+                'filepath': None,
+                'forklift_id': forklift_id,
+                'metadata': metadata or {},
+                'queued_at': datetime.utcnow()
+            })
+            return True
+        except queue.Full:
+            logger.warning(f"AI queue full - skipping image from {forklift_id}")
+            return False
     
     def _process_loop(self):
         """Background processing loop"""
@@ -196,15 +224,27 @@ class AIDetectionWorker:
         forklift_id = task['forklift_id']
         
         try:
-            # Check if file exists
-            if not os.path.exists(filepath):
-                logger.warning(f"Image file not found: {filepath}")
-                return
+            if task.get('image_bytes') is not None:
+                image = cv2.imdecode(
+                    np.frombuffer(task['image_bytes'], dtype=np.uint8),
+                    cv2.IMREAD_COLOR
+                )
+                if image is None:
+                    logger.warning(f"Could not decode image from {forklift_id}")
+                    return
+            else:
+                if not filepath or not os.path.exists(filepath):
+                    logger.warning(f"Image file not found: {filepath}")
+                    return
+                image = cv2.imread(filepath)
+                if image is None:
+                    logger.warning(f"Could not read image file: {filepath}")
+                    return
             
             start_time = time.time()
             
             # Process with model
-            detected_objects = self._process_model(filepath)
+            detected_objects = self._process_model(image)
             
             processing_time = time.time() - start_time
             
@@ -214,7 +254,7 @@ class AIDetectionWorker:
                     logger.info(f"  - {obj['name']} ({obj['confidence']:.2%})")
                 
                 # Add to inventory automatically
-                self._add_to_inventory(detected_objects, forklift_id, filepath)
+                self._add_to_inventory(detected_objects, forklift_id, image)
             else:
                 logger.debug(f"[AI] {forklift_id}: No objects detected ({processing_time:.2f}s)")
             
@@ -228,11 +268,11 @@ class AIDetectionWorker:
             }
             
         except Exception as e:
-            logger.error(f"Error processing image {filepath}: {e}")
+            logger.error(f"Error processing image for {forklift_id}: {e}")
             import traceback
             traceback.print_exc()
     
-    def _process_model(self, filepath):
+    def _process_model(self, image):
         """Process image with YOLO model"""
         from app.config import Config
         
@@ -241,7 +281,7 @@ class AIDetectionWorker:
         
         try:
             results = self.model(
-                filepath,
+                image,
                 conf=Config.AI_CONFIDENCE,
                 iou=Config.AI_IOU_THRESHOLD,
                 imgsz=Config.AI_INPUT_SIZE,
@@ -280,16 +320,14 @@ class AIDetectionWorker:
             traceback.print_exc()
             return []
     
-    def _add_to_inventory(self, detected_objects, forklift_id, image_path):
+    def _add_to_inventory(self, detected_objects, forklift_id, original_img):
         """Add detected objects to inventory with proper naming and annotated images"""
         try:
             from app.models import DetectedObject
             
-            # Read original image once
-            original_img = cv2.imread(image_path)
-            if original_img is None:
-                logger.error(f"Could not read image for annotation: {image_path}")
-                return
+            from app.config import Config
+            upload_folder = Config.UPLOAD_FOLDER
+            os.makedirs(upload_folder, exist_ok=True)
             
             for obj in detected_objects:
                 obj_name = obj['name']
@@ -320,7 +358,7 @@ class AIDetectionWorker:
                 # Save annotated image with object ID
                 timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
                 annotated_filename = f"{object_id}_{timestamp}.jpg"
-                annotated_path = os.path.join(os.path.dirname(image_path), annotated_filename)
+                annotated_path = os.path.join(upload_folder, annotated_filename)
                 
                 logger.info(f"[AI] Attempting to save: {annotated_path}")
                 success = cv2.imwrite(annotated_path, img)

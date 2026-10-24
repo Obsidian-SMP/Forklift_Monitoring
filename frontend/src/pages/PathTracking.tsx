@@ -69,7 +69,6 @@ export default function PathTracking() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [gateways, setGateways] = useState<Gateway[]>([]);
   const [currentPosition, setCurrentPosition] = useState<Position | null>(null);
-  const [pathHistory, setPathHistory] = useState<Position[]>([]);
   const [layoutConfigured, setLayoutConfigured] = useState(true);
   const [mapWidth, setMapWidth] = useState(10);
   const [mapHeight, setMapHeight] = useState(10);
@@ -86,6 +85,7 @@ export default function PathTracking() {
   const [showZoneModal, setShowZoneModal] = useState(false);
   const [zoneName, setZoneName] = useState('');
   const [zoneNotify, setZoneNotify] = useState(true);
+  const enteredZonesRef = useRef<Set<string>>(new Set());
   
   // Map dragging state
   const [isDragging, setIsDragging] = useState(false);
@@ -105,19 +105,18 @@ export default function PathTracking() {
     }
   };
 
-  // Fetch position and history (auto-refreshes every 3 seconds)
+  // Fetch the current position (auto-refreshes every second)
   const fetchPositionData = async () => {
     try {
       setError(null);
 
-      const [positionRes, historyRes] = await Promise.allSettled([
+      const positionRes = await Promise.allSettled([
         apiService.getLatestPosition(),
-        apiService.getPositionHistory(2), // 2 hours history
       ]);
 
       // Handle position response - 404 is OK when no data yet, not an error
-      if (positionRes.status === 'fulfilled') {
-        const data = positionRes.value as any;
+      if (positionRes[0].status === 'fulfilled') {
+        const data = positionRes[0].value as any;
         // Handle both direct position data and nested position object
         if (data.position) {
           if (typeof data.position === 'object' && data.position.x !== undefined) {
@@ -132,47 +131,14 @@ export default function PathTracking() {
             setCurrentPosition(null);
           }
         }
-      } else if (positionRes.status === 'rejected') {
+      } else if (positionRes[0].status === 'rejected') {
         // Silently ignore 404 errors - position data hasn't been calculated yet
-        const error = positionRes.reason as any;
+        const error = positionRes[0].reason as any;
         if (error?.message?.includes('404')) {
           setCurrentPosition(null); // No position data available yet
         } else {
           console.error('Error fetching position:', error);
         }
-      }
-
-      if (historyRes.status === 'fulfilled') {
-        const historyData = historyRes.value as any;
-        const trackData = historyData.positions || historyData.track || [];
-        
-        // Transform track data to Position format
-        const positions: Position[] = trackData.map((item: any) => {
-          // Handle nested position object from backend
-          if (item.position && typeof item.position === 'object') {
-            return {
-              x: item.position.x,
-              y: item.position.y,
-              z: item.position.z || 0,
-              accuracy: item.accuracy,
-              timestamp: item.timestamp,
-              gateway_count: item.gateway_count,
-              method: item.method,
-            };
-          }
-          // Handle flat structure
-          return {
-            x: item.x || 0,
-            y: item.y || 0,
-            z: item.z || 0,
-            accuracy: item.accuracy,
-            timestamp: item.timestamp,
-            gateway_count: item.gateway_count,
-            method: item.method,
-          };
-        });
-        
-        setPathHistory(positions);
       }
 
       setLoading(false);
@@ -401,7 +367,51 @@ export default function PathTracking() {
   // Delete zone
   const handleDeleteZone = (id: string) => {
     setZones(zones.filter(z => z.id !== id));
+    enteredZonesRef.current.delete(id);
   };
+
+  useEffect(() => {
+    if (!currentPosition || zones.length === 0) return;
+
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const currentZoneIds = new Set<string>();
+
+    zones.forEach((zone) => {
+      const inside = currentPosition.x >= zone.x1 &&
+        currentPosition.x <= zone.x2 &&
+        currentPosition.y >= zone.y1 &&
+        currentPosition.y <= zone.y2;
+
+      if (!inside) return;
+      currentZoneIds.add(zone.id);
+
+      if (zone.notifyEntry && !enteredZonesRef.current.has(zone.id)) {
+        enteredZonesRef.current.add(zone.id);
+        fetch(`${apiBase}/alerts/zone`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            zone_id: zone.id,
+            zone_name: zone.name,
+            forklift_id: currentPosition.forklift_id || 'forklift_001',
+            position: {
+              x: currentPosition.x,
+              y: currentPosition.y,
+            },
+          }),
+        }).catch((error) => {
+          console.error('Failed to report danger-zone entry:', error);
+          enteredZonesRef.current.delete(zone.id);
+        });
+      }
+    });
+
+    enteredZonesRef.current.forEach((zoneId) => {
+      if (!currentZoneIds.has(zoneId)) {
+        enteredZonesRef.current.delete(zoneId);
+      }
+    });
+  }, [currentPosition, zones]);
 
   // Draw map
   useEffect(() => {
@@ -425,7 +435,7 @@ export default function PathTracking() {
     } else {
       drawMapContent(ctx, canvas);
     }
-  }, [layoutConfigured, gateways, currentPosition, pathHistory, mapWidth, mapHeight, zones, warehouseImage, currentDrawing, isDrawingZone, mapOffset, mapScale]);
+  }, [layoutConfigured, gateways, currentPosition, mapWidth, mapHeight, zones, warehouseImage, currentDrawing, isDrawingZone, mapOffset, mapScale]);
 
   // Helper function to draw map content
   const drawMapContent = (
@@ -494,35 +504,6 @@ export default function PathTracking() {
       ctx.setLineDash([]);
     }
 
-    // Draw path history
-    if (pathHistory.length > 1) {
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-
-      pathHistory.forEach((pos, idx) => {
-        const x = pos.x * scaleX;
-        const y = pos.y * scaleY;
-        if (idx === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      });
-
-      ctx.stroke();
-
-      // Draw path points
-      pathHistory.forEach((pos) => {
-        const x = pos.x * scaleX;
-        const y = pos.y * scaleY;
-        ctx.fillStyle = '#f97316';
-        ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
-        ctx.fill();
-      });
-    }
-
     // Draw current position
     if (currentPosition) {
       const x = currentPosition.x * scaleX;
@@ -563,7 +544,7 @@ export default function PathTracking() {
         <div className="space-y-6">
           <div>
             <h1 className="text-3xl font-bold">Path Tracking & Maps</h1>
-            <p className="text-gray-600">Real-time forklift location and path history</p>
+            <p className="text-gray-600">Real-time forklift location</p>
           </div>
 
           <Card>
@@ -610,7 +591,7 @@ export default function PathTracking() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">Path Tracking & Maps</h1>
-            <p className="text-gray-600">Real-time forklift location and path history</p>
+            <p className="text-gray-600">Real-time forklift location</p>
           </div>
           <div className="flex gap-2">
             <Button
@@ -729,7 +710,7 @@ export default function PathTracking() {
             </CardTitle>
             <CardDescription>
               {gateways.length >= 3
-                ? '📍 Real-time forklift position (green dot) with path history (red line) • Click + drag to move map'
+                ? '📍 Real-time forklift position (green dot) • Click + drag to move map'
                 : '📍 Gateway positions (blue dots) - Add more gateways for tracking • Click + drag to move map'}
             </CardDescription>
           </CardHeader>
@@ -885,33 +866,6 @@ export default function PathTracking() {
             )}
           </CardContent>
         </Card>
-
-        {/* Path History */}
-        {pathHistory.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Path History</CardTitle>
-              <CardDescription>{pathHistory.length} recorded positions in last 2 hours</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {pathHistory.slice().reverse().map((pos, idx) => (
-                  <div
-                    key={idx}
-                    className="p-2 bg-muted border border-border rounded text-sm"
-                  >
-                    <span className="text-foreground">
-                      ({pos.x.toFixed(1)}m, {pos.y.toFixed(1)}m, {(pos.z || 0).toFixed(1)}m)
-                    </span>
-                    <span className="text-muted-foreground ml-2">
-                      {convertToIST(pos.timestamp)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Zones List Card */}
         {zones.length > 0 && (

@@ -3,7 +3,7 @@ Server-Sent Events (SSE) Streaming Routes
 Real-time position updates to frontend without WebSocket
 """
 
-from flask import Blueprint, Response, stream_with_context, request
+from flask import Blueprint, Response, stream_with_context
 import json
 import time
 from datetime import datetime
@@ -67,38 +67,6 @@ def stream_positions():
             'Cache-Control': 'no-cache',
             'X-Accel-Buffering': 'no',  # Disable nginx buffering
             'Connection': 'keep-alive'
-        }
-    )
-
-
-@streaming_bp.route('/positions/history', methods=['GET'])
-def stream_position_history():
-    """
-    Stream entire position history at once (useful for initial load)
-    
-    Query params:
-        limit: Number of recent positions to return (default: 200)
-    """
-    limit = int(request.args.get('limit', 200))
-    
-    engine = get_positioning_engine()
-    history = engine.get_position_history(limit=limit)
-    
-    def generate():
-        yield f"data: {json.dumps({'status': 'history_start', 'count': len(history)})}\n\n"
-        
-        for position in history:
-            yield f"data: {json.dumps(position)}\n\n"
-            time.sleep(0.01)  # Small delay to avoid overwhelming client
-        
-        yield f"data: {json.dumps({'status': 'history_complete'})}\n\n"
-    
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no'
         }
     )
 

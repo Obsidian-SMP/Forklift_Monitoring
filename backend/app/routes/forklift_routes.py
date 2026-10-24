@@ -5,6 +5,8 @@ import os
 from app.models import Forklift, ForkliftLocation
 
 forklift_bp = Blueprint('forklift', __name__)
+_LAST_CAMERA_DB_UPDATE = {}
+_CAMERA_DB_UPDATE_INTERVAL = timedelta(seconds=10)
 
 
 @forklift_bp.route('/', methods=['GET'])
@@ -139,8 +141,6 @@ def get_ai_stats():
 @forklift_bp.route('/<forklift_id>/image', methods=['POST'])
 def upload_image(forklift_id):
     """Upload image from ESP32-CAM for object detection"""
-    import os
-    from werkzeug.utils import secure_filename
     from flask import current_app
     
     try:
@@ -167,28 +167,28 @@ def upload_image(forklift_id):
         if not forklift:
             forklift = Forklift.create(forklift_id=forklift_id)
         
-        forklift.last_seen = datetime.utcnow()
-        forklift.save()
+        now = datetime.utcnow()
+        last_db_update = _LAST_CAMERA_DB_UPDATE.get(forklift_id)
+        if last_db_update is None or now - last_db_update >= _CAMERA_DB_UPDATE_INTERVAL:
+            forklift.last_seen = now
+            forklift.save()
+            _LAST_CAMERA_DB_UPDATE[forklift_id] = now
         
-        # Create upload directory if it doesn't exist
-        upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/images')
-        os.makedirs(upload_folder, exist_ok=True)
-        
-        # Generate filename with timestamp
+        # Keep the current frame in memory and send bytes directly to AI.
+        # Permanent files are created only when an object is detected.
+        from app.routes.camera_routes import store_latest_frame
+        if 'image' in request.files:
+            image_bytes = request.files['image'].read()
+        else:
+            image_bytes = request.get_data(cache=False)
+
+        if not image_bytes:
+            return jsonify({'error': 'Empty image data'}), 400
+
+        store_latest_frame(forklift_id, image_bytes)
+        file_size = len(image_bytes)
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
         filename = f"{forklift_id}_{timestamp}.jpg"
-        filepath = os.path.join(upload_folder, filename)
-        
-        # Save image from form data or raw data
-        if 'image' in request.files:
-            file = request.files['image']
-            file.save(filepath)
-        else:
-            # Save raw binary data (JPEG from ESP32-CAM)
-            with open(filepath, 'wb') as f:
-                f.write(request.data)
-        
-        file_size = os.path.getsize(filepath)
         
         # Queue image for async AI detection (non-blocking)
         ai_queued = False
@@ -196,7 +196,7 @@ def upload_image(forklift_id):
             from app.services.ai_worker import get_ai_worker
             worker = get_ai_worker()
             if worker:
-                ai_queued = worker.queue_image(filepath, forklift_id, {
+                ai_queued = worker.queue_image_bytes(image_bytes, forklift_id, {
                     'filename': filename,
                     'timestamp': timestamp,
                     'client_ip': client_ip

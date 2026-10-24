@@ -112,14 +112,6 @@ export const apiService = {
   }>('/rssi/position/latest'),
 
   /**
-   * Get position history (track)
-   */
-  getPositionHistory: (hours: number = 8) => apiCall<{
-    count: number;
-    positions: PositionData[];
-  }>(`/rssi/position/history?hours=${hours}`),
-
-  /**
    * Get position with trilateration accuracy
    */
   getPositionAccuracy: () => apiCall<{

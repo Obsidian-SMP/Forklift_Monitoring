@@ -5,9 +5,11 @@ Real-time alerts from warehouse data
 
 from flask import Blueprint, jsonify, request
 from datetime import datetime, timedelta
+import json
 from app.services.alerts_service import AlertsService, NotificationService
 from app.services.notification_service import notification_service
-from app.models import Inventory, DetectedObject, WarehouseEntry, InventoryTransaction
+from app import socketio
+from app.models import Inventory, DetectedObject, WarehouseEntry, InventoryTransaction, AlertEvent
 
 alerts_bp = Blueprint('alerts', __name__)
 
@@ -29,9 +31,9 @@ ALERT_SETTINGS = {
     },
     'notification_channels': {
         'in_app': True,
-        'email': False,
+        'email': True,
         'sms': False,
-        'whatsapp': False,
+        'whatsapp': True,
     },
     'notification_recipients': {
         'email': [],
@@ -41,6 +43,7 @@ ALERT_SETTINGS = {
 
 # Cache for tracking which alerts have been notified
 NOTIFIED_ALERTS = set()
+ANNOUNCED_ALERTS = set()
 
 def process_alert_notifications(alerts):
     """
@@ -54,24 +57,26 @@ def process_alert_notifications(alerts):
     """
     results = []
     
-    # Alert types that should trigger automatic notifications
-    AUTO_NOTIFY_TYPES = ['low_inventory', 'out_of_stock', 'inventory_detected']
-    
     for alert in alerts:
         alert_id = alert.get('id')
         alert_type = alert.get('type')
         severity = alert.get('severity')
         
-        # Skip if already notified or if type shouldn't auto-notify
+        if alert_id and alert_id not in ANNOUNCED_ALERTS:
+            socketio.emit('alert_received', alert)
+            ANNOUNCED_ALERTS.add(alert_id)
+
+        # Skip alerts already delivered. Every alert visible in the alert tab
+        # is eligible for configured email/WhatsApp delivery.
         if alert_id in NOTIFIED_ALERTS:
-            continue
-            
-        if alert_type not in AUTO_NOTIFY_TYPES:
             continue
         
         # Check if any notification channels are enabled
-        channels_enabled = any(ALERT_SETTINGS['notification_channels'].values())
-        if not channels_enabled:
+        channels_enabled = any(
+            ALERT_SETTINGS['notification_channels'].get(channel, False)
+            for channel in ('email', 'whatsapp', 'sms')
+        )
+        if not channels_enabled or not alert_id:
             continue
         
         # Send notification
@@ -81,7 +86,7 @@ def process_alert_notifications(alerts):
                 ALERT_SETTINGS
             )
             
-            if result.get('all_success'):
+            if result.get('success_count', 0) > 0:
                 NOTIFIED_ALERTS.add(alert_id)
                 results.append({
                     'alert_id': alert_id,
@@ -99,6 +104,46 @@ def process_alert_notifications(alerts):
         'processed': len(results),
         'results': results
     }
+
+
+@alerts_bp.route('/zone', methods=['POST'])
+def create_zone_alert():
+    """Record and notify a map danger-zone entry."""
+    try:
+        data = request.get_json(silent=True) or {}
+        zone_id = str(data.get('zone_id', '')).strip()
+        zone_name = str(data.get('zone_name', '')).strip()
+        forklift_id = str(data.get('forklift_id', 'forklift_001')).strip()
+        position = data.get('position') or {}
+
+        if not zone_id or not zone_name or not forklift_id:
+            return jsonify({'error': 'zone_id, zone_name and forklift_id are required'}), 400
+
+        event_timestamp = datetime.utcnow()
+        alert_id = (
+            f'alert-zone-{forklift_id}-{zone_id}-'
+            f'{int(event_timestamp.timestamp())}'
+        )
+
+        alert = AlertEvent.create(
+            alert_id=alert_id,
+            alert_type='forklift_in_zone',
+            severity='high',
+            message=f'Forklift {forklift_id} entered danger zone: {zone_name}',
+            source=forklift_id,
+            timestamp=event_timestamp,
+            metadata_json=json.dumps({
+                'forklift_id': forklift_id,
+                'zone_id': zone_id,
+                'zone': zone_name,
+                'position': position,
+            }),
+        )
+        alert_data = alert.to_alert()
+        process_alert_notifications([alert_data])
+        return jsonify(alert_data), 201
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
 
 
 

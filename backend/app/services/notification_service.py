@@ -204,25 +204,11 @@ class NotificationService:
         channels_to_use = force_channels if force_channels else []
         
         if not force_channels:
-            # Determine channels based on severity
-            if severity in ['info', 'low']:
-                # Low priority: Email only
-                if enabled_channels.get('email', False):
-                    channels_to_use.append('email')
-            elif severity == 'medium':
-                # Medium priority: WhatsApp + Email
-                if enabled_channels.get('whatsapp', False):
-                    channels_to_use.append('whatsapp')
-                if enabled_channels.get('email', False):
-                    channels_to_use.append('email')
-            else:  # high, critical
-                # High priority: All channels (SMS + WhatsApp + Email)
-                if enabled_channels.get('sms', False):
-                    channels_to_use.append('sms')
-                if enabled_channels.get('whatsapp', False):
-                    channels_to_use.append('whatsapp')
-                if enabled_channels.get('email', False):
-                    channels_to_use.append('email')
+            # Every alert uses each explicitly enabled external channel.
+            # Severity is included in the message, not used to suppress delivery.
+            for channel in ('email', 'whatsapp', 'sms'):
+                if enabled_channels.get(channel, False):
+                    channels_to_use.append(channel)
         
         # Get recipients
         recipients = settings.get('notification_recipients', {})

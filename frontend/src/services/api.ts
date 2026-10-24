@@ -21,7 +21,7 @@ async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
     // Allow 404 for position endpoints (no data yet)
     if (!response.ok) {
-      if (response.status === 404 && (endpoint.includes('/position/latest') || endpoint.includes('/position/history'))) {
+      if (response.status === 404 && endpoint.includes('/position/latest')) {
         // Return empty position data instead of throwing error
         const emptyData = endpoint.includes('/history') 
           ? { positions: [] } 
@@ -151,16 +151,6 @@ export const apiService = {
     message: string;
     position?: PositionData;
   }>('/rssi/position/latest'),
-
-  /**
-   * Get position history (track) - Uses trilateration calculated positions
-   */
-  getPositionHistory: (hours: number = 2, forkliftId: string = 'forklift_001') => apiCall<{
-    forklift_id: string;
-    count: number;
-    period_hours: number;
-    track: PositionData[];
-  }>(`/rssi/position/history?forklift_id=${forkliftId}&hours=${hours}`),
 
   /**
    * Get position with trilateration accuracy

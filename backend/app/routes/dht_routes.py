@@ -1,21 +1,37 @@
 """
 DHT Sensor Routes
-Endpoints for reading temperature and humidity from DHT sensor on GPIO pin 40
+Endpoints for reading temperature and humidity received from the DHT sensor.
 """
 
 from flask import Blueprint, jsonify
-from app.services.dht_sensor import get_dht_reading, initialize_dht
+from app.models import WarehouseSensor
 
 dht_bp = Blueprint('dht', __name__)
 
-# Initialize on first import
-initialize_dht()
+
+def get_latest_received_reading():
+    """Return the latest reading posted by the remote Raspberry Pi sensor."""
+    sensor = WarehouseSensor.select().order_by(
+        WarehouseSensor.timestamp.desc()
+    ).first()
+    if not sensor:
+        return None
+
+    reading = sensor.to_dict()
+    return {
+        'temperature': reading['temperature'],
+        'humidity': reading['humidity'],
+        'timestamp': reading['timestamp'],
+        'status': 'success',
+        'source': 'raspberry_pi',
+        'sensor_id': reading['sensor_id'],
+    }
 
 @dht_bp.route('/temperature', methods=['GET'])
 def get_temperature():
-    """Get current temperature from DHT sensor"""
+    """Get the latest temperature received from the DHT sensor."""
     try:
-        reading = get_dht_reading()
+        reading = get_latest_received_reading()
         if reading:
             return jsonify({
                 'temperature': reading.get('temperature'),
@@ -23,15 +39,15 @@ def get_temperature():
                 'timestamp': reading.get('timestamp'),
                 'status': 'success'
             }), 200
-        return jsonify({'error': 'Failed to read DHT sensor', 'status': 'error'}), 500
+        return jsonify({'error': 'No DHT reading has been received', 'status': 'unavailable'}), 404
     except Exception as e:
         return jsonify({'error': str(e), 'status': 'error'}), 500
 
 @dht_bp.route('/humidity', methods=['GET'])
 def get_humidity():
-    """Get current humidity from DHT sensor"""
+    """Get the latest humidity received from the DHT sensor."""
     try:
-        reading = get_dht_reading()
+        reading = get_latest_received_reading()
         if reading:
             return jsonify({
                 'humidity': reading.get('humidity'),
@@ -39,23 +55,23 @@ def get_humidity():
                 'timestamp': reading.get('timestamp'),
                 'status': 'success'
             }), 200
-        return jsonify({'error': 'Failed to read DHT sensor', 'status': 'error'}), 500
+        return jsonify({'error': 'No DHT reading has been received', 'status': 'unavailable'}), 404
     except Exception as e:
         return jsonify({'error': str(e), 'status': 'error'}), 500
 
 @dht_bp.route('/reading', methods=['GET'])
 def get_dht_data():
-    """Get the current temperature and humidity reading from the sensor."""
+    """Get the latest temperature and humidity received from the sensor."""
     try:
-        reading = get_dht_reading()
+        reading = get_latest_received_reading()
         if reading:
             return jsonify({
                 'temperature': reading.get('temperature'),
                 'humidity': reading.get('humidity'),
                 'timestamp': reading.get('timestamp'),
-                'status': reading.get('status', 'unavailable'),
-                'source': reading.get('source', 'none'),
-                'note': reading.get('note')
+                'status': reading['status'],
+                'source': reading['source'],
+                'sensor_id': reading['sensor_id'],
             }), 200
         return jsonify({
             'temperature': None,

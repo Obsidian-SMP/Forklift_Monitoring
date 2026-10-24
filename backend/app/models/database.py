@@ -26,8 +26,9 @@ def init_db(database_path):
     from app.models.sensor_data import WarehouseSensor
     from app.models.forklift import Forklift, ForkliftLocation, VibrationData
     from app.models.inventory import Inventory, InventoryTransaction
-    from app.models.ble_rssi import WiFiGateway, BLERSSIData, ForkliftPositionTrilateration
+    from app.models.ble_rssi import WiFiGateway, BLERSSIData
     from app.models.warehouse import WarehouseMap
+    from app.models.alert_event import AlertEvent
     
     # Create tables if they don't exist
     db.create_tables([
@@ -39,8 +40,8 @@ def init_db(database_path):
         InventoryTransaction,
         WiFiGateway,
         BLERSSIData,
-        ForkliftPositionTrilateration,
-        WarehouseMap
+        WarehouseMap,
+        AlertEvent
     ], safe=True)
     
     print(f"✓ SQLite database initialized: {database_path}")

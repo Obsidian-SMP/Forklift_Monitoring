@@ -6,6 +6,7 @@ Handles camera stream endpoints per forklift
 from flask import Blueprint, jsonify, request, Response
 import logging
 import requests
+import threading
 from datetime import datetime
 
 camera_bp = Blueprint('camera', __name__)
@@ -16,6 +17,8 @@ logger = logging.getLogger(__name__)
 FORKLIFT_CAMERAS = {
     "forklift_1": None,
 }
+LATEST_FRAMES = {}
+LATEST_FRAME_LOCK = threading.Lock()
 
 CAMERA_PORT = 80
 
@@ -25,6 +28,17 @@ def get_camera_url(forklift_id):
     if forklift_id not in FORKLIFT_CAMERAS or not FORKLIFT_CAMERAS[forklift_id]:
         return None
     return f"http://{FORKLIFT_CAMERAS[forklift_id]}:{CAMERA_PORT}"
+
+
+def store_latest_frame(forklift_id, frame):
+    """Keep only the newest raw JPEG in memory for low-latency viewing."""
+    with LATEST_FRAME_LOCK:
+        LATEST_FRAMES[forklift_id] = frame
+
+
+def get_latest_frame(forklift_id):
+    with LATEST_FRAME_LOCK:
+        return LATEST_FRAMES.get(forklift_id)
 
 
 @camera_bp.route('/forklifts', methods=['GET'])
@@ -95,51 +109,22 @@ def get_frame(forklift_id):
 
 @camera_bp.route('/<forklift_id>/latest', methods=['GET'])
 def get_latest_image(forklift_id):
-    """Get the latest uploaded image from forklift camera with compression"""
-    import os
-    from flask import send_file
-    from PIL import Image
-    from io import BytesIO
-    from app.config import Config
-    
+    """Return the newest uploaded JPEG without scanning or recompressing files."""
+
     try:
-        # Get upload folder
-        upload_folder = 'uploads/images'
-        
-        if not os.path.exists(upload_folder):
-            return jsonify({'error': 'Upload folder not found'}), 404
-        
-        # Find latest image for this forklift
-        matching_files = []
-        for filename in os.listdir(upload_folder):
-            if filename.startswith(f"{forklift_id}_") and filename.endswith('.jpg'):
-                filepath = os.path.join(upload_folder, filename)
-                mtime = os.path.getmtime(filepath)
-                matching_files.append((filepath, mtime))
-        
-        if not matching_files:
-            return jsonify({'error': 'No images found for this forklift'}), 404
-        
-        # Sort by modification time (newest first) and get the latest
-        matching_files.sort(key=lambda x: x[1], reverse=True)
-        latest_file = matching_files[0][0]
-        
-        # Compress image for faster transfer (70% size reduction)
-        img = Image.open(latest_file)
-        buffer = BytesIO()
-        img.save(buffer, format='JPEG', quality=Config.IMAGE_COMPRESSION_QUALITY, optimize=True)
-        buffer.seek(0)
-        
-        # Send compressed image with no-cache headers
-        return send_file(
-            buffer,
+        frame = get_latest_frame(forklift_id)
+        if frame is None:
+            return jsonify({'error': 'No images received for this forklift'}), 404
+
+        return Response(
+            frame,
+            status=200,
             mimetype='image/jpeg',
-            as_attachment=False,
-            download_name=os.path.basename(latest_file),
-            max_age=0,
-            conditional=False,
-            etag=False,
-            last_modified=None
+            headers={
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Content-Length': str(len(frame)),
+            }
         )
     except Exception as e:
         logger.error(f"Error getting latest image for {forklift_id}: {str(e)}")
@@ -166,12 +151,15 @@ def stream(forklift_id):
                 )
                 
                 # Forward the stream
-                for chunk in stream_response.iter_content(chunk_size=1024):
+                for chunk in stream_response.iter_content(chunk_size=16 * 1024):
                     if chunk:
                         yield chunk
                         
             except Exception as e:
                 logger.error(f"Stream error for {forklift_id}: {str(e)}")
+            finally:
+                if 'stream_response' in locals():
+                    stream_response.close()
         
         return Response(
             generate(),

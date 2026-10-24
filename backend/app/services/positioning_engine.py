@@ -6,8 +6,7 @@ Coordinates RSSI processing, trilateration, and Kalman filtering
 import threading
 import time
 from datetime import datetime
-from typing import Dict, Optional, List
-from collections import deque
+from typing import Dict, Optional
 
 from app.services.rssi_processor import RSSIProcessor
 from app.services.trilateration_wls import WLSTrilateration
@@ -54,7 +53,6 @@ class PositioningEngine:
         
         # Storage for latest position
         self.latest_position = None
-        self.position_history = deque(maxlen=200)
         
         # Gateway cache
         self.gateway_cache = {}
@@ -106,11 +104,6 @@ class PositioningEngine:
         """Get latest calculated position"""
         with self.lock:
             return self.latest_position.copy() if self.latest_position else None
-    
-    def get_position_history(self, limit=200) -> List[Dict]:
-        """Get recent position history"""
-        with self.lock:
-            return list(self.position_history)[-limit:]
     
     def get_statistics(self) -> Dict:
         """Get engine statistics"""
@@ -165,7 +158,6 @@ class PositioningEngine:
                     if position:
                         self.stats['successful_calculations'] += 1
                         self.latest_position = position
-                        self.position_history.append(position)
                         
                         # Update average accuracy
                         if 'accuracy' in position:
@@ -199,8 +191,6 @@ class PositioningEngine:
         """
         try:
             from app.gateway_config import RSSI_CONFIG
-            import numpy as np
-
             max_age = RSSI_CONFIG.get('MAX_AGE_SECONDS', 2.0)
             min_samples = RSSI_CONFIG.get('MIN_SAMPLES', 1)
 
@@ -290,28 +280,6 @@ class PositioningEngine:
                 'gateway_ids': gateway_ids,
                 'rssi_values': {gw_id: rssi for gw_id, rssi in zip(gateway_ids, rssi_values)}
             }
-            
-            # Save to database for historical tracking
-            try:
-                from app.models import ForkliftPositionTrilateration
-                avg_rssi = float(np.mean(list(position['rssi_values'].values()))) if position.get('rssi_values') else None
-                ForkliftPositionTrilateration.create(
-                    forklift_id=position['forklift_id'],
-                    calculated_x=position['x'],
-                    calculated_y=position['y'],
-                    calculated_z=position.get('z', 0.0),
-                    accuracy=position.get('accuracy'),
-                    gateway_count=position['gateway_count'],
-                    average_rssi=avg_rssi,
-                    method=position['method'],
-                    velocity_x=position.get('vx', 0.0),
-                    velocity_y=position.get('vy', 0.0),
-                    speed=position.get('speed', 0.0),
-                    timestamp=datetime.utcnow()
-                )
-            except Exception as db_err:
-                # Don't fail position calculation if DB write fails
-                print(f"⚠️ Failed to save position to DB: {db_err}")
             
             return position
             

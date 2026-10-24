@@ -107,7 +107,7 @@ RSSI_CONFIG = {
     "SMOOTHING_ALPHA": 0.40,  # Light EMA smoothing factor (higher = more responsive for raw values)
     "BUFFER_SIZE": 10,  # Number of RSSI samples to keep per gateway
     "MAX_AGE_SECONDS": 2.0,  # Maximum age of RSSI samples to consider (reduced from 10s to 2s to remove movement lag)
-    "MIN_SAMPLES": 1,  # Minimum samples required per gateway (reduced from 3 to 1 for fast response)
+    "MIN_SAMPLES": 3,  # Minimum samples required per gateway (reduced from 3 to 1 for fast response)
     "MIN_RSSI": -95,  # Minimum RSSI value (weaker signals ignored)
     "MAX_RSSI": -30,  # Maximum RSSI value (very close)
 }
