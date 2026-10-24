@@ -4,7 +4,6 @@ Endpoints for reading temperature and humidity from DHT sensor on GPIO pin 40
 """
 
 from flask import Blueprint, jsonify
-from app.models import WarehouseSensor
 from app.services.dht_sensor import get_dht_reading, initialize_dht
 
 dht_bp = Blueprint('dht', __name__)
@@ -46,20 +45,17 @@ def get_humidity():
 
 @dht_bp.route('/reading', methods=['GET'])
 def get_dht_data():
-    """Get the latest temperature and humidity received by the backend."""
+    """Get the current temperature and humidity reading from the sensor."""
     try:
-        sensor = WarehouseSensor.select().order_by(
-            WarehouseSensor.timestamp.desc()
-        ).first()
-        if sensor:
-            reading = sensor.to_dict()
+        reading = get_dht_reading()
+        if reading:
             return jsonify({
-                'temperature': reading['temperature'],
-                'humidity': reading['humidity'],
-                'timestamp': reading['timestamp'],
-                'sensor_id': reading['sensor_id'],
-                'status': 'success',
-                'source': 'backend'
+                'temperature': reading.get('temperature'),
+                'humidity': reading.get('humidity'),
+                'timestamp': reading.get('timestamp'),
+                'status': reading.get('status', 'unavailable'),
+                'source': reading.get('source', 'none'),
+                'note': reading.get('note')
             }), 200
         return jsonify({
             'temperature': None,

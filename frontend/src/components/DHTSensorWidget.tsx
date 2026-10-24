@@ -145,7 +145,7 @@ export function DHTSensorWidget() {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        {reading?.status === 'unavailable' || reading?.temperature == null || reading?.humidity == null ? (
+        {reading?.status !== 'success' || reading?.temperature == null || reading?.humidity == null ? (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-6 text-center text-amber-700 dark:text-amber-300">
             <AlertCircle className="mx-auto mb-2 h-8 w-8" />
             <p className="font-semibold">DHT sensor data is not available</p>

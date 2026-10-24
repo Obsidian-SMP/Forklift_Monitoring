@@ -284,7 +284,7 @@ export const dhtService = {
   async getDHTReading(): Promise<{
     temperature: number | null;
     humidity: number | null;
-    timestamp: string;
+    timestamp: string | null;
     status?: string;
     source?: string;
     note?: string;

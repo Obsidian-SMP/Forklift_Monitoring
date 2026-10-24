@@ -3,7 +3,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { MapPin, Settings, AlertTriangle, Navigation } from 'lucide-react';
+import { MapPin, Settings, AlertTriangle, Navigation, ZoomIn, ZoomOut } from 'lucide-react';
 import apiService from '@/services/api';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
@@ -41,6 +41,7 @@ interface Position {
   x: number;
   y: number;
   z?: number;
+  forklift_id?: string;
   accuracy?: number;
   timestamp: string;
   gateway_count?: number;
@@ -91,6 +92,7 @@ export default function PathTracking() {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [mapOffset, setMapOffset] = useState({ x: 0, y: 0 });
   const [tempOffset, setTempOffset] = useState({ x: 0, y: 0 });
+  const [mapScale, setMapScale] = useState(1);
 
   // Fetch gateways only (called once on mount and manually when needed)
   const fetchGateways = async () => {
@@ -290,9 +292,13 @@ export default function PathTracking() {
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     
-    // Get position relative to canvas in screen pixels
-    const canvasPixelX = (clientX - rect.left) * scaleX;
-    const canvasPixelY = (clientY - rect.top) * scaleY;
+    // Undo the centered zoom and map translation applied while rendering.
+    const canvasCenterX = canvas.width / 2;
+    const canvasCenterY = canvas.height / 2;
+    const canvasPixelX = canvasCenterX
+      + ((clientX - rect.left) * scaleX - canvasCenterX - mapOffset.x) / mapScale;
+    const canvasPixelY = canvasCenterY
+      + ((clientY - rect.top) * scaleY - canvasCenterY - mapOffset.y) / mapScale;
     
     // Convert from canvas pixels to map coordinates
     const mapX = (canvasPixelX / canvas.width) * mapWidth;
@@ -303,8 +309,8 @@ export default function PathTracking() {
 
   // Handle zone drawing
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    // Right click for dragging
-    if (e.button === 2) {
+    // Pan with either mouse button when zone drawing is not active.
+    if (e.button === 2 || (e.button === 0 && !isDrawingZone)) {
       e.preventDefault();
       setIsDragging(true);
       setDragStart({ x: e.clientX, y: e.clientY });
@@ -319,11 +325,23 @@ export default function PathTracking() {
     setCurrentDrawing({ x1: coords.x, y1: coords.y, x2: coords.x, y2: coords.y });
   };
 
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMapPanStart = (e: React.MouseEvent<HTMLElement>) => {
+    if (e.button !== 0 && e.button !== 2) return;
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    setTempOffset(mapOffset);
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLElement>) => {
     // Handle map dragging
     if (isDragging) {
-      const dx = e.clientX - dragStart.x;
-      const dy = e.clientY - dragStart.y;
+      const canvas = canvasRef.current;
+      const rect = canvas?.getBoundingClientRect();
+      const scaleX = canvas && rect ? canvas.width / rect.width : 1;
+      const scaleY = canvas && rect ? canvas.height / rect.height : 1;
+      const dx = (e.clientX - dragStart.x) * scaleX;
+      const dy = (e.clientY - dragStart.y) * scaleY;
       setMapOffset({
         x: tempOffset.x + dx,
         y: tempOffset.y + dy
@@ -338,7 +356,7 @@ export default function PathTracking() {
     setCurrentDrawing({ ...currentDrawing, x2: coords.x, y2: coords.y });
   };
 
-  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLElement>) => {
     // End dragging
     if (isDragging) {
       setIsDragging(false);
@@ -401,20 +419,29 @@ export default function PathTracking() {
     if (warehouseImage) {
       const img = new Image();
       img.onload = () => {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        drawMapContent(ctx, canvas);
+        drawMapContent(ctx, canvas, img);
       };
       img.src = warehouseImage;
     } else {
       drawMapContent(ctx, canvas);
     }
-  }, [layoutConfigured, gateways, currentPosition, pathHistory, mapWidth, mapHeight, zones, warehouseImage, currentDrawing, isDrawingZone, mapOffset]);
+  }, [layoutConfigured, gateways, currentPosition, pathHistory, mapWidth, mapHeight, zones, warehouseImage, currentDrawing, isDrawingZone, mapOffset, mapScale]);
 
   // Helper function to draw map content
-  const drawMapContent = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
-    // Save context and apply translation for map offset
+  const drawMapContent = (
+    ctx: CanvasRenderingContext2D,
+    canvas: HTMLCanvasElement,
+    image?: HTMLImageElement
+  ) => {
+    // Apply the map offset and centered zoom to all map content.
     ctx.save();
-    ctx.translate(mapOffset.x, mapOffset.y);
+    ctx.translate(canvas.width / 2 + mapOffset.x, canvas.height / 2 + mapOffset.y);
+    ctx.scale(mapScale, mapScale);
+    ctx.translate(-canvas.width / 2, -canvas.height / 2);
+
+    if (image) {
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    }
     
     // Draw border
     ctx.strokeStyle = '#333';
@@ -442,7 +469,7 @@ export default function PathTracking() {
 
       // Zone label
       ctx.fillStyle = zone.notifyEntry ? '#b45309' : '#374151';
-      ctx.font = 'bold 12px Arial';
+      ctx.font = `bold ${12 / mapScale}px Arial`;
       ctx.textAlign = 'left';
       ctx.fillText(zone.name, x1 + 5, y1 + 20);
     });
@@ -466,24 +493,6 @@ export default function PathTracking() {
       ctx.strokeRect(minX, minY, w, h);
       ctx.setLineDash([]);
     }
-
-    // Draw gateways
-    gateways.forEach((gateway) => {
-      const x = gateway.location.x * scaleX;
-      const y = gateway.location.y * scaleY;
-
-      // Gateway circle
-      ctx.fillStyle = '#3b82f6';
-      ctx.beginPath();
-      ctx.arc(x, y, 8, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Gateway label
-      ctx.fillStyle = '#333';
-      ctx.font = '12px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(gateway.name, x, y - 15);
-    });
 
     // Draw path history
     if (pathHistory.length > 1) {
@@ -529,17 +538,6 @@ export default function PathTracking() {
         ctx.stroke();
       }
 
-      // Forklift marker
-      ctx.fillStyle = '#10b981';
-      ctx.beginPath();
-      ctx.arc(x, y, 6, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Forklift label
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 12px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('FK', x, y + 4);
     }
     
     // Restore context (undo translation)
@@ -694,37 +692,124 @@ export default function PathTracking() {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Warehouse Floor Map</span>
-              {mapOffset.x !== 0 || mapOffset.y !== 0 ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMapScale((scale) => Math.max(0.5, scale - 0.25))}
+                  disabled={mapScale <= 0.5}
+                  title="Zoom out"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </Button>
+                <span className="min-w-14 text-center text-sm text-muted-foreground">
+                  {Math.round(mapScale * 100)}%
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMapScale((scale) => Math.min(3, scale + 0.25))}
+                  disabled={mapScale >= 3}
+                  title="Zoom in"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </Button>
                 <Button 
                   variant="outline" 
                   size="sm"
-                  onClick={() => setMapOffset({ x: 0, y: 0 })}
-                  title="Reset map position"
+                  onClick={() => {
+                    setMapOffset({ x: 0, y: 0 });
+                    setMapScale(1);
+                  }}
+                  title="Reset map position and zoom"
                 >
                   🔄 Reset View
                 </Button>
-              ) : null}
+              </div>
             </CardTitle>
             <CardDescription>
               {gateways.length >= 3
-                ? '📍 Real-time forklift position (green dot) with path history (red line) • Right-click + drag to move map'
-                : '📍 Gateway positions (blue dots) - Add more gateways for tracking • Right-click + drag to move map'}
+                ? '📍 Real-time forklift position (green dot) with path history (red line) • Click + drag to move map'
+                : '📍 Gateway positions (blue dots) - Add more gateways for tracking • Click + drag to move map'}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="bg-muted rounded-lg p-4">
-              <canvas
-                ref={canvasRef}
-                width={600}
-                height={480}
-                onMouseDown={handleCanvasMouseDown}
+              <div
+                className="relative"
                 onMouseMove={handleCanvasMouseMove}
                 onMouseUp={handleCanvasMouseUp}
-                onContextMenu={(e) => e.preventDefault()}
-                className={`w-full border-2 border-border rounded-lg bg-card ${
-                  isDragging ? 'cursor-grabbing' : isDrawingZone ? 'cursor-crosshair' : 'cursor-grab'
-                }`}
-              />
+                onMouseLeave={isDragging ? handleCanvasMouseUp : undefined}
+              >
+                <canvas
+                  ref={canvasRef}
+                  width={600}
+                  height={480}
+                  onMouseDown={handleCanvasMouseDown}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className={`w-full border-2 border-border rounded-lg bg-card ${
+                    isDragging ? 'cursor-grabbing' : isDrawingZone ? 'cursor-crosshair' : 'cursor-grab'
+                  }`}
+                />
+                <div className="pointer-events-none absolute inset-0">
+                  {gateways.map((gateway) => {
+                    const x = gateway.location.x * (600 / mapWidth);
+                    const y = gateway.location.y * (480 / mapHeight);
+                    const screenX = 300 + mapOffset.x + (x - 300) * mapScale;
+                    const screenY = 240 + mapOffset.y + (y - 240) * mapScale;
+                    const isVisible = screenX >= 0 && screenX <= 600 && screenY >= 0 && screenY <= 480;
+
+                    if (!isVisible) return null;
+
+                    return (
+                      <div
+                        key={gateway.gateway_id}
+                        className="group pointer-events-auto absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-2 border-white bg-blue-500 shadow-md transition-transform hover:scale-125 hover:bg-blue-600"
+                        style={{
+                          left: `${(screenX / 600) * 100}%`,
+                          top: `${(screenY / 480) * 100}%`,
+                        }}
+                        aria-label={gateway.name}
+                        onMouseDown={handleMapPanStart}
+                      >
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-3 hidden -translate-x-1/2 whitespace-nowrap rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-card-foreground shadow-lg group-hover:block">
+                          {gateway.name}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {currentPosition && (
+                    (() => {
+                      const forkliftX = 300 + mapOffset.x
+                        + ((currentPosition.x * (600 / mapWidth)) - 300) * mapScale;
+                      const forkliftY = 240 + mapOffset.y
+                        + ((currentPosition.y * (480 / mapHeight)) - 240) * mapScale;
+                      const isVisible = forkliftX >= 0 && forkliftX <= 600
+                        && forkliftY >= 0 && forkliftY <= 480;
+                      const forkliftName = currentPosition.forklift_id || 'forklift_001';
+
+                      if (!isVisible) return null;
+
+                      return (
+                        <div
+                          className="group pointer-events-auto absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 cursor-grab items-center justify-center rounded-full border-2 border-white bg-emerald-500 text-[10px] font-bold text-white shadow-md transition-transform hover:scale-125 hover:bg-emerald-600"
+                          style={{
+                            left: `${(forkliftX / 600) * 100}%`,
+                            top: `${(forkliftY / 480) * 100}%`,
+                          }}
+                          aria-label={forkliftName}
+                          onMouseDown={handleMapPanStart}
+                        >
+                          F
+                          <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-3 hidden -translate-x-1/2 whitespace-nowrap rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-card-foreground shadow-lg group-hover:block">
+                            {forkliftName}
+                          </span>
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>

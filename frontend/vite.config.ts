@@ -29,7 +29,10 @@ export default defineConfig(({ mode }) => {
     configureServer(server: any) {
       // Replace printUrls entirely to avoid WSL virtual IPs appearing
       server.printUrls = () => {
-        const port = 8080;
+        const address = server.httpServer?.address();
+        const port = typeof address === 'object' && address !== null
+          ? address.port
+          : server.config.server.port;
         console.log(`\n  ${G}➜${R}  ${B}Local:${R}       ${C}http://localhost:${port}/${R}`);
         for (const ip of displayIps) {
           console.log(`  ${G}➜${R}  ${B}Network:${R}     ${C}http://${ip}:${port}/${R}`);
