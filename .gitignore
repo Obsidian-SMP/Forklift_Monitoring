@@ -1,0 +1,62 @@
+# ==============================================================================
+# File: .gitignore
+# Description: Git Ignore Configuration for Warehouse IoT (Revised Version).
+# ==============================================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+env/
+.venv/
+
+# Database & Runtime State
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+backend/logs/
+
+# Model weights
+*.pt
+*.onnx
+*.weights
+
+# Frontend / Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Android Studio & Gradle
+.gradle/
+**/build/
+!app/build.gradle
+!build.gradle
+**/app/build/
+*.apk
+*.aab
+local.properties
+.cxx/
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating System
+.DS_Store
+Thumbs.db
+*.tmp

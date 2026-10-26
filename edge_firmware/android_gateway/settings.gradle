@@ -1,0 +1,24 @@
+// ==============================================================================
+// File: edge_firmware/android_gateway/settings.gradle
+// Description: Gradle Project Settings for Warehouse BLE Gateway Android Application.
+// Purpose: Configures root project repositories and declares the :app module.
+// ==============================================================================
+
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "WarehouseGateway"
+include ':app'

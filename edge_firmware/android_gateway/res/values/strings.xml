@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ==============================================================================
+     File: edge_firmware/android_gateway/res/values/strings.xml
+     Description: User Interface Text Strings & Localization Resource.
+     ============================================================================== -->
+<resources>
+    <string name="app_name">Warehouse Gateway</string>
+    <string name="channel_name">Warehouse Gateway Scanner</string>
+    <string name="channel_description">Continuous low-latency BLE scan &amp; telemetry relay</string>
+    <string name="notification_title">Warehouse BLE Gateway</string>
+</resources>
