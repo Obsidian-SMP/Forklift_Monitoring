@@ -90,12 +90,11 @@ def register_forklift():
             if existing:
                 return jsonify({"error": f"Forklift '{forklift_id}' already exists"}), 409
 
+            battery = int(data.get("battery_level", data.get("battery_percentage", 100)))
             forklift = Forklift.create(
                 forklift_id=forklift_id,
                 name=name,
-                model_type=data.get("model_type", "Standard Electric"),
-                operator_name=data.get("operator_name", "Unassigned"),
-                battery_percentage=data.get("battery_percentage", 100.0),
+                battery_level=battery,
                 status=data.get("status", "idle"),
             )
             return jsonify({"forklift": forklift.to_dict()}), 201
@@ -122,11 +121,12 @@ def update_forklift_status(forklift_id: str):
 
             forklift.status = new_status
             if "loaded_sku" in data:
-                forklift.loaded_sku = data.get("loaded_sku")
+                forklift.carrying_item_id = data.get("loaded_sku")
+                forklift.is_carrying = bool(data.get("loaded_sku"))
             forklift.save()
 
             # Also update in-memory positioning engine state
-            positioning_engine.set_forklift_status(forklift_id, new_status, forklift.loaded_sku)
+            positioning_engine.set_forklift_status(forklift_id, new_status, forklift.carrying_item_id)
 
         return jsonify({"forklift": forklift.to_dict()}), 200
 
@@ -145,10 +145,14 @@ def get_forklift_history(forklift_id: str):
 
     try:
         with db.connection_context():
+            forklift = Forklift.get_or_none(Forklift.forklift_id == forklift_id)
+            if not forklift:
+                return jsonify({"error": f"Forklift '{forklift_id}' not found"}), 404
+
             tracks = (
                 ForkliftTrack.select()
-                .where(ForkliftTrack.forklift_id == forklift_id)
-                .order_by(ForkliftTrack.created_at.desc())
+                .where(ForkliftTrack.forklift == forklift)
+                .order_by(ForkliftTrack.timestamp.desc())
                 .limit(limit)
             )
             trail = [t.to_dict() for t in tracks]

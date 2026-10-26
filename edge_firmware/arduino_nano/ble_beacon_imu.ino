@@ -82,22 +82,28 @@ void setup() {
 }
 
 void loop() {
+    // Keep BLE stack events serviced
+    BLE.poll();
+
     unsigned long currentMillis = millis();
 
     if (currentMillis - lastAdvertiseTime >= ADVERTISING_INTERVAL_MS) {
         lastAdvertiseTime = currentMillis;
 
-        // 1. Read real-time 3-axis acceleration from LSM6DS3
-        float x = 0.0, y = 0.0, z = 0.0;
+        // 1. Read real-time 3-axis acceleration from LSM6DS3 (retain last reading if sample busy)
+        static float lastX = 0.0f, lastY = 0.0f, lastZ = 1.0f;
         if (IMU.accelerationAvailable()) {
-            IMU.readAcceleration(x, y, z); // Values are in g's (1g = 9.81 m/s^2)
+            IMU.readAcceleration(lastX, lastY, lastZ); // Values are in g's (1g = 9.81 m/s^2)
         }
+        float x = lastX;
+        float y = lastY;
+        float z = lastZ;
 
         // Calculate total vector magnitude: |a| = sqrt(x^2 + y^2 + z^2)
         float mag = sqrt(x * x + y * y + z * z);
 
         // Flash LED if an impact spike is registered (> 4.0g)
-        if (mag > 4.0) {
+        if (mag > 4.0f) {
             digitalWrite(LED_BUILTIN, HIGH);
         } else {
             digitalWrite(LED_BUILTIN, LOW);
@@ -112,9 +118,12 @@ void loop() {
         payload.magnitude = (uint16_t)(mag * 100.0f);
         payload.batteryPercent = 95; // Can be wired to analog battery divider
 
-        // 3. Update BLE manufacturer data in the air
-        // Android gateways scanning BLE receive this instantly without connecting!
+        // 3. Update BLE manufacturer data in the air:
+        // In ArduinoBLE, stopAdvertise() + setManufacturerData() + advertise()
+        // is required to refresh advertising packets on the NINA-W102 controller.
+        BLE.stopAdvertise();
         BLE.setManufacturerData((const uint8_t*)&payload, sizeof(payload));
+        BLE.advertise();
 
         #if 0 // Debug output (enable if testing over USB serial)
         Serial.print("Ax: "); Serial.print(x);
@@ -124,3 +133,4 @@ void loop() {
         #endif
     }
 }
+

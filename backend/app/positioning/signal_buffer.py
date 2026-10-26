@@ -58,6 +58,32 @@ class SignalRingBuffer:
                 mag = float(np.sqrt(ax * ax + ay * ay + az * az))
                 self._latest_imu = (now, ax, ay, az, mag)
 
+    def record_rssi(
+        self,
+        gateway_id: str,
+        forklift_id: str,
+        rssi: float,
+        timestamp: Optional[float] = None,
+    ):
+        """Convenience alias for recording gateway RSSI."""
+        self.add_reading(gateway_id=gateway_id, rssi=rssi, timestamp=timestamp)
+
+    def record_imu(
+        self,
+        forklift_id: str,
+        ax: float,
+        ay: float,
+        az: float,
+        magnitude: Optional[float] = None,
+        timestamp: Optional[float] = None,
+    ):
+        """Convenience alias for recording forklift IMU acceleration."""
+        now = timestamp or time.time()
+        mag = magnitude if magnitude is not None else float(np.sqrt(ax * ax + ay * ay + az * az))
+        with self.lock:
+            self._latest_imu = (now, ax, ay, az, mag)
+
+
     def get_latest_imu(
         self, max_age: float = 1.0
     ) -> Optional[Tuple[float, float, float, float]]:

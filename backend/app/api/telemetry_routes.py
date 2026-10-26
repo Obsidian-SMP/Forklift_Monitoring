@@ -116,11 +116,11 @@ def ingest_dht_telemetry():
         with db.connection_context():
             reading = SensorReading.create(
                 sensor_id=sensor_id,
-                sensor_type="DHT11",
-                temperature=temp_f,
-                humidity=hum_f,
+                temperature_celsius=temp_f,
+                humidity_percent=hum_f,
             )
             reading_dict = reading.to_dict()
+
     except Exception as e:
         log_event("ERROR", f"Failed to persist DHT reading: {e}", "TelemetryAPI")
         return jsonify({"error": "Database error"}), 500

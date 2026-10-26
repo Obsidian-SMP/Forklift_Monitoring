@@ -83,10 +83,15 @@ class PositioningEngine:
             self.thread.join(timeout=1.5)
         log_event("INFO", "POSITIONING", "Positioning Engine stopped")
 
-    def get_current_position(self) -> Dict[str, Any]:
+    def get_current_position(self, forklift_id: Optional[str] = None) -> Dict[str, Any]:
         """Thread-safe getter for current estimated coordinates."""
         with self.lock:
-            return self._current_state.copy()
+            state = self._current_state.copy()
+            state["is_moving"] = state.get("speed_mps", 0.0) > 0.05
+            state["last_updated"] = state.get("timestamp")
+            state["status"] = self._current_state.get("status", "idle")
+            state["loaded_sku"] = self._current_state.get("loaded_sku")
+            return state
 
     def set_forklift_status(self, forklift_id: str, status: str, loaded_sku: str = None):
         """Updates operational status in memory."""

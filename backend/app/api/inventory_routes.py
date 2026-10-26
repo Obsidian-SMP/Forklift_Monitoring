@@ -34,7 +34,7 @@ def get_inventory():
 
             items = []
             for item in query:
-                if search and search not in item.sku.lower() and search not in item.name.lower():
+                if search and search not in item.item_id.lower() and search not in item.item_name.lower():
                     continue
                 items.append(item.to_dict())
 
@@ -49,31 +49,32 @@ def get_inventory():
 def create_inventory_item():
     """Creates a new inventory item in the catalog."""
     data = request.get_json(silent=True)
-    if not data or not data.get("sku"):
-        return jsonify({"error": "sku is required"}), 400
+    item_id = data.get("item_id") or data.get("sku") if data else None
+    if not data or not item_id:
+        return jsonify({"error": "item_id (or sku) is required"}), 400
 
-    sku = data["sku"].strip()
-    name = data.get("name", sku)
+    item_id = item_id.strip()
+    item_name = data.get("item_name") or data.get("name", item_id)
 
     try:
         with db.connection_context():
-            existing = InventoryItem.get_or_none(InventoryItem.sku == sku)
+            existing = InventoryItem.get_or_none(InventoryItem.item_id == item_id)
             if existing:
-                return jsonify({"error": f"Item with SKU '{sku}' already exists"}), 409
+                return jsonify({"error": f"Item with ID '{item_id}' already exists"}), 409
 
             item = InventoryItem.create(
-                sku=sku,
-                name=name,
-                category=data.get("category", "General"),
+                item_id=item_id,
+                item_name=item_name,
+                category=data.get("category", "box"),
                 quantity=int(data.get("quantity", 1)),
-                weight_kg=float(data.get("weight_kg", 10.0)),
-                current_zone=data.get("current_zone", "Aisle-1"),
-                current_shelf=data.get("current_shelf", "Shelf-A"),
+                unit=data.get("unit", "boxes"),
+                zone=data.get("zone", data.get("current_zone", "Aisle-1")),
+                shelf=data.get("shelf", data.get("current_shelf", "Shelf-A")),
                 status=data.get("status", "in_stock"),
             )
             item_dict = item.to_dict()
 
-        log_event("INFO", f"Registered new inventory item SKU '{sku}'", "InventoryAPI", data=item_dict)
+        log_event("INFO", f"Registered new inventory item ID '{item_id}'", "InventoryAPI", data=item_dict)
         return jsonify({"item": item_dict}), 201
 
     except Exception as e:
@@ -93,7 +94,7 @@ def get_transactions():
         with db.connection_context():
             txs = (
                 InventoryTransaction.select()
-                .order_by(InventoryTransaction.created_at.desc())
+                .order_by(InventoryTransaction.timestamp.desc())
                 .limit(limit)
             )
             result = [t.to_dict() for t in txs]

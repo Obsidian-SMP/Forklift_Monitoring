@@ -39,9 +39,7 @@ def seed_database_defaults():
             Forklift.create(
                 forklift_id="forklift_1",
                 name="Warehouse Forklift #1",
-                model_type="Crown SC Series 48V",
-                operator_name="Sam (Lead Driver)",
-                battery_percentage=96.0,
+                battery_level=96,
                 status="idle",
                 current_x=2.5,
                 current_y=2.5,
@@ -158,13 +156,13 @@ def seed_database_defaults():
             ]
             for it in default_items:
                 InventoryItem.create(
-                    sku=it["sku"],
-                    name=it["name"],
+                    item_id=it["sku"],
+                    item_name=it["name"],
                     category=it["category"],
                     quantity=it["quantity"],
-                    weight_kg=it["weight"],
-                    current_zone=it["zone"],
-                    current_shelf=it["shelf"],
+                    unit="boxes",
+                    zone=it["zone"],
+                    shelf=it["shelf"],
                     status=it["status"],
                 )
             log_event("INFO", "Seeded default inventory catalog", "Bootstrap")
